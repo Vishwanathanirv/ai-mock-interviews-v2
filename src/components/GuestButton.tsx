@@ -8,7 +8,8 @@ export function GuestButton({ className = "btn btn-accent", children = "Try it n
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <span className={`${className.includes("w-full") ? "flex w-full" : "inline-flex items-start"} flex-col gap-1`}>
+    // The error sits under the button without taking space, so nothing next to it moves.
+    <span className={`relative ${className.includes("w-full") ? "flex w-full" : "inline-flex"} flex-col`}>
       <button
         type="button"
         className={className}
@@ -28,7 +29,11 @@ export function GuestButton({ className = "btn btn-accent", children = "Try it n
       >
         {busy ? "Starting…" : children}
       </button>
-      {error && <span className="text-sm text-bad">{error}</span>}
+      {error && (
+        <span role="alert" className={`text-sm text-bad ${className.includes("w-full") ? "mt-1" : "absolute left-0 top-full mt-1.5 whitespace-nowrap"}`}>
+          {error}
+        </span>
+      )}
     </span>
   );
 }
