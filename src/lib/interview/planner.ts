@@ -133,7 +133,7 @@ export function buildReport(cfg: InterviewConfig, history: HistoryItem[], source
     strengths: tally(evals.flatMap((e) => e.strengths)).slice(0, 4),
     improvements: tally(evals.flatMap((e) => e.improvements)).slice(0, 4),
     studyTopics: missingTopics.slice(0, 6),
-    delivery: { avgWpm: wpms.length ? Math.round(avg(wpms)) : null, fillerRate: words ? +(fillers / words).toFixed(3) : 0, totalWords: words, totalMinutes: minutes, ...voiceSummary(evals) },
+    delivery: { avgWpm: wpms.length ? Math.round(avg(wpms)) : null, fillerRate: words ? +(fillers / words).toFixed(3) : 0, totalWords: words, totalMinutes: minutes, ...voiceSummary(evals), ...videoSummary(evals) },
     source,
   };
 }
@@ -152,6 +152,24 @@ function voiceSummary(evals: AnswerEvaluation[]): { voice?: FinalReport["deliver
       pausesPerMinute: speakingMin ? +(vs.reduce((a, v) => a + v.pauses, 0) / speakingMin).toFixed(1) : 0,
       longestPauseSec: Math.max(...vs.map((v) => v.longestPauseSec)),
       pauseRatio: +avg(vs.map((v) => v.pauseRatio)).toFixed(2),
+    },
+  };
+}
+
+/** On-camera presence across the answers given with the camera on. */
+function videoSummary(evals: AnswerEvaluation[]): { video?: FinalReport["delivery"]["video"] } {
+  const vs = evals.map((e) => e.metrics.video).filter((v): v is NonNullable<typeof v> => Boolean(v));
+  if (!vs.length) return {};
+  const mode = (xs: string[]) => [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0][0];
+  return {
+    video: {
+      answers: vs.length,
+      eyeContactPct: Math.round(avg(vs.map((v) => v.eyeContactPct))),
+      lookAwaysPerAnswer: +avg(vs.map((v) => v.lookAways)).toFixed(1),
+      smilePct: Math.round(avg(vs.map((v) => v.smilePct))),
+      movement: +avg(vs.map((v) => v.movement)).toFixed(2),
+      framing: mode(vs.map((v) => v.framing)),
+      lighting: mode(vs.map((v) => v.lighting)),
     },
   };
 }

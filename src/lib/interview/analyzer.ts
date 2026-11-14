@@ -1,3 +1,4 @@
+import { videoTips, type VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import type { AnswerEvaluation, AskedQuestion, Concept, DeliveryMetrics, ScoreBreakdown } from "./types";
 
@@ -34,7 +35,7 @@ export function conceptHit(norm: string, concept: Concept): boolean {
   });
 }
 
-export function analyzeDelivery(answer: string, durationSec: number, voice?: VoiceMetrics): DeliveryMetrics {
+export function analyzeDelivery(answer: string, durationSec: number, voice?: VoiceMetrics, video?: VideoMetrics): DeliveryMetrics {
   const norm = normalize(answer);
   const words = norm.trim() ? norm.trim().split(" ").length : 0;
   const fillers: Record<string, number> = {};
@@ -62,15 +63,16 @@ export function analyzeDelivery(answer: string, durationSec: number, voice?: Voi
       result: /\b(result|as a result|outcome|reduced|increased|improved|saved|shipped|launched|delivered|learned)\b/i.test(answer),
     },
     ...(voice && voice.speakingSec >= 3 ? { voice, articulationWpm: Math.round((words / voice.speakingSec) * 60) } : {}),
+    ...(video && video.frames >= 5 ? { video } : {}),
   };
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 /** Transparent, rule-based scoring used offline and to ground AI scores with measurable delivery data. */
-export function scoreAnswer(question: AskedQuestion, answer: string, durationSec: number, voice?: VoiceMetrics): AnswerEvaluation {
+export function scoreAnswer(question: AskedQuestion, answer: string, durationSec: number, voice?: VoiceMetrics, video?: VideoMetrics): AnswerEvaluation {
   const norm = normalize(answer);
-  const metrics = analyzeDelivery(answer, durationSec, voice);
+  const metrics = analyzeDelivery(answer, durationSec, voice, video);
   const covered: string[] = [];
   const missing: string[] = [];
   for (const c of question.concepts) (conceptHit(norm, c) ? covered : missing).push(c[0]);
@@ -107,6 +109,12 @@ export function scoreAnswer(question: AskedQuestion, answer: string, durationSec
     if (v.longestPauseSec > 3) delivery -= Math.min(10, (v.longestPauseSec - 3) * 3);
     if (v.pauseRatio > 0.35) delivery -= Math.min(10, (v.pauseRatio - 0.35) * 40);
   }
+  // On camera: eye contact and a settled posture.
+  const cam = metrics.video;
+  if (cam && cam.faceVisiblePct >= 50) {
+    if (cam.eyeContactPct < 50) delivery -= Math.min(10, (50 - cam.eyeContactPct) / 4);
+    if (cam.movement > 0.35) delivery -= 4;
+  }
   if (metrics.words < 15) delivery = Math.min(delivery, 40);
 
   const breakdown: ScoreBreakdown = { content, depth, structure, delivery: clamp(delivery) };
@@ -128,6 +136,7 @@ function feedback(q: AskedQuestion, m: DeliveryMetrics, b: ScoreBreakdown, cover
   if (m.hasNumbers) strengths.push("Used numbers to make the impact specific.");
   if (q.kind === "behavioral" && Object.values(m.star).every(Boolean)) strengths.push("Clear STAR structure: situation, task, action and result.");
   if (b.delivery >= 85 && m.words >= 30) strengths.push("Confident, fluent delivery with few filler words.");
+  const cam = m.video ? videoTips(m.video) : { strengths: [], improvements: [] };
   const voiceStrength = m.voice?.monotone === false && (m.voice.pitchSdSemitones ?? 0) >= 2.2 ? "Expressive voice: your pitch rose and fell naturally, which keeps listeners engaged." : null;
 
   if (missing.length) {
@@ -155,6 +164,9 @@ function feedback(q: AskedQuestion, m: DeliveryMetrics, b: ScoreBreakdown, cover
   if (m.voice && m.voice.longestPauseSec > 3) fromVoice.push(`One pause lasted ${m.voice.longestPauseSec} s. If you need time, say "Let me think about that for a second" instead of going silent.`);
   if (!strengths.length) strengths.push("Stayed on the question and gave an answer to build on.");
   // What the microphone heard gets one of the three slots, so it is never crowded out.
-  const strengthsOut = voiceStrength ? [...strengths.slice(0, 2), voiceStrength] : strengths.slice(0, 3);
-  return { strengths: strengthsOut, improvements: [...improvements.slice(0, fromVoice.length ? 2 : 3), ...fromVoice.slice(0, 1)] };
+  // Presence (voice, then camera) gets one of the three slots, so it is never crowded out.
+  const presence = [...fromVoice, ...cam.improvements];
+  const presenceStrength = voiceStrength ?? cam.strengths[0] ?? null;
+  const strengthsOut = presenceStrength ? [...strengths.slice(0, 2), presenceStrength] : strengths.slice(0, 3);
+  return { strengths: strengthsOut, improvements: [...improvements.slice(0, presence.length ? 2 : 3), ...presence.slice(0, 1)] };
 }
