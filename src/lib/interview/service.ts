@@ -86,7 +86,7 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
   let aiFollowUp: string | undefined;
   if (row.provider === "ai" && aiEnabled()) {
     try {
-      const ai = await evaluateWithAI(cfg, q, answer, rules);
+      const ai = await evaluateWithAI(cfg, q, answer, rules, history.map((h) => ({ q: h.question.text, a: h.answer })));
       aiFollowUp = ai.followUp;
       const { followUp: _omit, ...rest } = ai;
       void _omit;
@@ -94,6 +94,7 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
       evaluation = { ...rest, metrics: rules.metrics };
     } catch (err) {
       console.warn("[ai] evaluation failed, using rule-based scoring:", (err as Error).message);
+      evaluation = { ...rules, source: "rules" };
     }
   }
 

@@ -8,9 +8,10 @@ import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { Interviewer } from "./Interviewer";
 import { ScorePill } from "./ScoreRing";
 import { useCamera } from "./useCamera";
+import { decideTurn } from "@/lib/voice/turn";
 import { useVoice } from "./useVoice";
 
-type Phase = "intro" | "asking" | "ready" | "listening" | "review" | "submitting" | "feedback" | "finishing";
+type Phase = "intro" | "asking" | "ready" | "listening" | "submitting" | "reacting" | "finishing";
 
 type Props = {
   id: string;
@@ -97,16 +98,16 @@ export function Room({ id, title, provider, total, answered, question: initial }
   const [elapsed, setElapsed] = useState(0);
   const [callSec, setCallSec] = useState(0);
   const [feedback, setFeedback] = useState<AnswerEvaluation | null>(null);
-  const [pendingNext, setPendingNext] = useState<AskedQuestion | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [caption, setCaption] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
   const callStart = useRef<number>(0);
-  const spokenSec = useRef(0);
-  const voiceMetrics = useRef<VoiceMetrics | null>(null);
-  const videoMetrics = useRef<VideoMetrics | null>(null);
   const asked = useRef(0);
+  const nudged = useRef(false);
+  const turnBusy = useRef(false);
+  const transcript = useRef("");
+  transcript.current = `${voice.finalText} ${voice.interim}`.trim();
 
   const sttOk = voice.supported?.stt ?? false;
   const useTyping = typing || (voice.supported !== null && !sttOk);
@@ -138,20 +139,41 @@ export function Room({ id, title, provider, total, answered, question: initial }
     [voice, voiceOn],
   );
 
+  // The current input mode, readable from callbacks created on earlier renders.
+  const typingNow = useRef(useTyping);
+  typingNow.current = useTyping;
+
+  /** Opens the microphone for the candidate's turn (or the text box when typing). */
+  const listen = useCallback(async (mode?: "voice" | "typing") => {
+    voice.silence();
+    startedAt.current = Date.now();
+    nudged.current = false;
+    turnBusy.current = false;
+    setElapsed(0);
+    setDraft("");
+    if ((mode ?? (typingNow.current ? "typing" : "voice")) === "typing") {
+      setPhase("ready");
+      return;
+    }
+    if (await voice.start()) {
+      setPhase("listening");
+      camera.startAnalysis();
+    } else {
+      setTyping(true);
+      setPhase("ready");
+    }
+  }, [voice, camera]);
+
   const ask = useCallback(
     async (q: AskedQuestion) => {
-      setDraft("");
-      setElapsed(0);
-      setFeedback(null);
       setError(null);
       setPhase("asking");
       const intro = lead(q, asked.current++);
       if (intro) await say(intro);
       await say(q.text);
-      startedAt.current = Date.now();
-      setPhase("ready");
+      await listen();
     },
-    [say],
+    [say, listen],
   );
 
   async function join() {
@@ -159,73 +181,111 @@ export function Room({ id, title, provider, total, answered, question: initial }
     await ask(question);
   }
 
-  async function beginAnswer() {
-    voice.silence();
-    startedAt.current = Date.now();
-    setElapsed(0);
-    if (await voice.start()) {
-      setPhase("listening");
-      camera.startAnalysis();
-    } else setTyping(true);
-  }
+  /** Sends an answer, lets the interviewer react, then moves straight on, like a real conversation. */
+  const send = useCallback(
+    async (answer: string, durationSec: number, measured: { voice?: VoiceMetrics | null; video?: VideoMetrics | null } = {}) => {
+      setPhase("submitting");
+      setCaption(null);
+      const res = await fetch(`/api/interviews/${id}/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          answer,
+          durationSec: Math.round(durationSec * 10) / 10,
+          ...(measured.voice ? { voice: measured.voice } : {}),
+          ...(measured.video ? { video: measured.video } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Could not submit your answer.");
+        setDraft(answer);
+        setPhase("ready");
+        return;
+      }
+      const evaluation = data.evaluation as AnswerEvaluation;
+      const next = data.next as AskedQuestion | null;
+      setCount((c) => c + 1);
+      setFeedback(evaluation);
+      if (next && voiceOn) voice.prefetch(next.text);
+      setPhase("reacting");
+      await say(evaluation.reaction ?? acknowledge(evaluation.score, count));
+      if (next) {
+        setQuestion(next);
+        await ask(next);
+        return;
+      }
+      setPhase("finishing");
+      await say("That's all my questions. Thank you for your time. I'll put your report together now.");
+      camera.stop();
+      router.push(`/report/${id}`);
+      router.refresh();
+    },
+    [id, voiceOn, voice, say, ask, camera, router, count],
+  );
 
-  function stopAnswer() {
-    const { text, voice: measured } = voice.stop();
-    voiceMetrics.current = measured;
-    videoMetrics.current = camera.stopAnalysis();
-    spokenSec.current = (Date.now() - startedAt.current) / 1000;
-    setDraft(text);
-    setPhase("review");
-  }
+  /** Ends the candidate's spoken turn and submits it. */
+  const finishTurn = useCallback(
+    async (fallback?: string) => {
+      if (turnBusy.current) return;
+      turnBusy.current = true;
+      const { text, voice: measured } = voice.stop();
+      const video = camera.stopAnalysis();
+      const answer = text.trim() || fallback || "";
+      if (!answer) {
+        await say("Sorry, I didn't catch that. Could you say it again?");
+        await listen();
+        return;
+      }
+      await send(answer, (Date.now() - startedAt.current) / 1000, { voice: measured, video });
+    },
+    [voice, camera, say, listen, send],
+  );
 
-  async function submit() {
+  // While the candidate talks, decide several times a second whether their turn is over.
+  useEffect(() => {
+    if (phase !== "listening") return;
+    const iv = setInterval(() => {
+      if (turnBusy.current) return;
+      const d = decideTurn({ transcript: transcript.current, quietMs: voice.quietFor(), sinceStartMs: Date.now() - startedAt.current, nudged: nudged.current });
+      if (d === "end") void finishTurn();
+      else if (d === "give-up") void finishTurn("I don't have an answer for this one.");
+      else if (d === "repeat" || d === "nudge") {
+        turnBusy.current = true;
+        const line = d === "repeat" ? `Sure. ${question.text}` : "Take your time. Whenever you're ready.";
+        voice.stop();
+        camera.stopAnalysis();
+        void (async () => {
+          await say(line);
+          await listen();
+          if (d === "nudge") nudged.current = true;
+        })();
+      }
+    }, 250);
+    return () => clearInterval(iv);
+  }, [phase, voice, camera, finishTurn, say, listen, question.text]);
+
+  async function submitTyped() {
     const answer = draft.trim();
     if (!answer) {
       setError("Say or type an answer first.");
       return;
     }
-    const durationSec = useTyping ? 0 : spokenSec.current; // typed answers have no speaking pace
-    setPhase("submitting");
-    const res = await fetch(`/api/interviews/${id}/answer`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        answer,
-        durationSec: Math.round(durationSec * 10) / 10,
-        ...(!useTyping && voiceMetrics.current ? { voice: voiceMetrics.current } : {}),
-        ...(!useTyping && videoMetrics.current ? { video: videoMetrics.current } : {}),
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "Could not submit your answer.");
-      setPhase(useTyping ? "ready" : "review");
-      return;
-    }
-    voiceMetrics.current = null;
-    videoMetrics.current = null;
-    setCount((c) => c + 1);
-    setFeedback(data.evaluation);
-    setPendingNext(data.next);
-    setPhase("feedback");
-    if (data.next && voiceOn) voice.prefetch(data.next.text);
-    void say(acknowledge(data.evaluation.score, count));
+    await send(answer, 0); // typed answers have no speaking pace
   }
 
-  async function next() {
-    if (!pendingNext) {
-      setPhase("finishing");
-      camera.stop();
-      router.push(`/report/${id}`);
-      router.refresh();
-      return;
+  function switchInput() {
+    if (phase === "listening") {
+      voice.stop();
+      camera.stopAnalysis();
     }
-    voice.silence();
-    setQuestion(pendingNext);
-    await ask(pendingNext);
+    const nowTyping = !useTyping;
+    setTyping(nowTyping);
+    void listen(nowTyping ? "typing" : "voice");
   }
 
   async function endEarly() {
+    turnBusy.current = true;
     voice.silence();
     if (voice.listening) voice.stop();
     camera.stop();
@@ -246,7 +306,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
 
   const mm = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   const listening = phase === "listening";
-  const qNumber = Math.min(phase === "feedback" || phase === "finishing" ? count : count + 1, total);
+  const qNumber = Math.min(phase === "reacting" || phase === "finishing" ? count : count + 1, total);
 
   // ---------- lobby ----------
   if (phase === "intro") {
@@ -273,9 +333,11 @@ export function Room({ id, title, provider, total, answered, question: initial }
           <p className="eyebrow">{title}</p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Ready to join?</h1>
           <p className="mt-2 text-muted">
-            {INTERVIEWER} will ask {total - answered} question{total - answered === 1 ? "" : "s"}. Press the microphone to answer and again when you&apos;re done. You can check the transcript before sending.
+            A live conversation with {INTERVIEWER}: she asks, you just talk, and when you pause she takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
           </p>
           <ul className="mt-4 space-y-1.5 text-sm text-muted">
+            <li>• No buttons to press: stop talking for a couple of seconds and she&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner, or &ldquo;can you repeat the question?&rdquo;</li>
+            <li>• Expect honest feedback. She will tell you when an answer wouldn&apos;t pass a real interview.</li>
             <li>• Turn your camera on for feedback on eye contact, expression and posture.</li>
             <li>• Video is analysed on this device and never uploaded or saved.</li>
           </ul>
@@ -295,7 +357,9 @@ export function Room({ id, title, provider, total, answered, question: initial }
   }
 
   // ---------- the call ----------
-  const yourCaption = listening ? `${voice.finalText} ${voice.interim}`.trim() : "";
+  const yourCaption = listening ? transcript.current : "";
+  const status =
+    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? "Your turn: just talk" : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : useTyping ? "Your turn: type your answer" : "Paused";
   return (
     <div className="mx-auto max-w-6xl">
       <div className="overflow-hidden rounded-2xl bg-[#0f1115] text-white">
@@ -313,9 +377,14 @@ export function Room({ id, title, provider, total, answered, question: initial }
         <div className="grid gap-3 px-3 sm:grid-cols-2 sm:px-4">
           <div className={`relative aspect-video overflow-hidden rounded-xl ring-2 transition ${voice.speaking ? "ring-accent" : "ring-transparent"}`}>
             <Interviewer mouth={voice.mouth} speaking={voice.speaking} listening={listening} level={voice.level} />
-            <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs">
-              {INTERVIEWER} · Interviewer
-            </span>
+            <span className="absolute bottom-2 left-2 rounded-md bg-black/55 px-2 py-1 text-xs">{INTERVIEWER} · Interviewer</span>
+            {phase === "submitting" && (
+              <span className="absolute right-2 top-2 flex items-center gap-1 rounded-md bg-black/55 px-2 py-1 text-xs">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white [animation-delay:300ms]" />
+              </span>
+            )}
           </div>
           <div className={`relative aspect-video overflow-hidden rounded-xl bg-[#1a1d23] ring-2 transition ${listening ? "ring-accent" : "ring-transparent"}`}>
             {camera.on ? (
@@ -350,86 +419,74 @@ export function Room({ id, title, provider, total, answered, question: initial }
           ) : (
             <p key={caption ?? question.text} className="animate-rise mx-auto max-w-3xl text-[1.1rem] leading-relaxed sm:text-[1.2rem]">
               <span className="text-white/50">{INTERVIEWER}: </span>
-              {phase === "feedback" || phase === "submitting" ? caption : question.text}
+              {caption ?? question.text}
             </p>
           )}
-          {listening && !yourCaption && <p className="mt-1 text-sm text-white/50">Listening… start speaking.</p>}
+          <p className="mt-1 text-xs uppercase tracking-wider text-white/40">{status}</p>
         </div>
 
         {/* controls */}
         <div className="flex flex-wrap items-center justify-center gap-3 border-t border-white/10 px-4 py-3">
-          {!useTyping && (phase === "ready" || phase === "asking" || listening) && (
-            <CallButton label={listening ? "Done answering" : "Answer"} onClick={listening ? stopAnswer : beginAnswer} active={listening} disabled={phase === "asking"} wide>
+          {!useTyping && (listening || phase === "ready") && (
+            <CallButton label={listening ? "I'm done" : "Answer"} onClick={listening ? () => void finishTurn() : () => void listen()} active={listening} wide>
               <span className="flex items-center gap-2 text-sm font-medium">
                 {Icon.mic}
-                {listening ? `Done · ${mm(elapsed)}` : phase === "asking" ? "Interviewer speaking…" : "Answer"}
+                {listening ? `I'm done · ${mm(elapsed)}` : "Answer"}
               </span>
             </CallButton>
           )}
           <CallButton label={camera.on ? "Turn camera off" : "Turn camera on"} onClick={() => (camera.on ? camera.stop() : void camera.start())} active={camera.on}>
             {camera.on ? Icon.cam : Icon.camOff}
           </CallButton>
-          <CallButton label="Repeat question" onClick={() => void say(question.text)} disabled={phase === "asking" || listening}>
+          <CallButton label="Repeat question" onClick={() => void say(question.text)} disabled={phase !== "ready"}>
             {Icon.replay}
           </CallButton>
-          {sttOk && !listening && (
-            <CallButton label={useTyping ? "Use voice instead" : "Type instead"} onClick={() => setTyping((t) => !t)} active={useTyping}>
+          {sttOk && (
+            <CallButton label={useTyping ? "Use voice instead" : "Type instead"} onClick={switchInput} active={useTyping} disabled={phase === "submitting" || phase === "reacting" || phase === "asking"}>
               {Icon.keyboard}
             </CallButton>
           )}
-          <CallButton label="Leave interview" onClick={endEarly} danger disabled={phase === "finishing" || phase === "submitting"} wide>
+          <CallButton label="Leave interview" onClick={endEarly} danger disabled={phase === "finishing"} wide>
             <span className="flex items-center gap-2 text-sm font-medium">{Icon.leave} Leave</span>
           </CallButton>
         </div>
       </div>
 
-      {/* answer and feedback panel under the call */}
-      {(useTyping && (phase === "ready" || phase === "submitting" || phase === "asking")) || phase === "review" || (phase === "submitting" && !useTyping) ? (
+      {useTyping && (phase === "ready" || phase === "submitting" || phase === "asking") && (
         <section className="card mt-4 p-5">
           <div className="flex items-center justify-between text-sm text-muted">
-            <span>{useTyping ? "Type your answer as you would say it" : "Check the transcript, then send"}</span>
+            <span>Type your answer as you would say it</span>
             <span className="font-mono tabular-nums">{mm(elapsed)}</span>
           </div>
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            rows={useTyping ? 6 : 5}
+            rows={6}
             maxLength={6000}
             className="input mt-3 h-auto resize-y py-3 leading-relaxed"
-            aria-label={useTyping ? "Your answer" : "Transcript of your answer"}
-            disabled={phase === "submitting" || phase === "asking"}
+            aria-label="Your answer"
+            disabled={phase !== "ready"}
           />
-          <div className="mt-4 flex flex-wrap justify-between gap-3">
-            {!useTyping ? (
-              <button type="button" className="btn btn-ghost h-10 text-sm" onClick={beginAnswer} disabled={phase === "submitting"}>
-                Re-record
-              </button>
-            ) : (
-              <span />
-            )}
-            <button className="btn btn-primary" onClick={submit} disabled={phase === "submitting" || phase === "asking"}>
-              {phase === "submitting" ? "Grading…" : useTyping ? "Submit answer" : "Send answer"}
+          <div className="mt-4 flex justify-end">
+            <button className="btn btn-primary" onClick={submitTyped} disabled={phase !== "ready"}>
+              {phase === "submitting" ? "Grading…" : "Submit answer"}
             </button>
           </div>
-          {(error || voice.error) && (
-            <p role="alert" className="mt-4 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">
-              {error ?? voice.error}
-            </p>
-          )}
         </section>
-      ) : null}
-      {!useTyping && (error || voice.error || camera.error) && phase !== "review" && (
+      )}
+      {(error || voice.error || camera.error) && (
         <p role="alert" className="mt-4 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">
           {error ?? voice.error ?? camera.error}
         </p>
       )}
 
-      {phase === "feedback" && feedback && (
-        <section className="card mt-4 animate-rise p-5">
+      {feedback && (
+        <section className="card mt-4 animate-rise p-5" aria-label="Notes on your last answer">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <ScorePill score={feedback.score} />
               <span className="font-medium">Quick feedback</span>
+              <span className="text-sm text-muted">on your last answer</span>
             </div>
             <span className="text-xs text-faint">
               {feedback.metrics.words} words{feedback.metrics.wpm ? ` · ${feedback.metrics.wpm} wpm` : ""}
@@ -438,20 +495,24 @@ export function Room({ id, title, provider, total, answered, question: initial }
               {feedback.metrics.video ? ` · eye contact ${feedback.metrics.video.eyeContactPct}%` : ""}
             </span>
           </div>
+          {feedback.redFlags?.length ? (
+            <p className="mt-4 rounded-xl bg-bad-soft px-4 py-3 text-sm text-bad">
+              <b>Red flag:</b> {feedback.redFlags.join(", ")}. This alone could cost you a real interview.
+            </p>
+          ) : null}
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl bg-good-soft/70 p-4">
-              <div className="text-xs font-medium uppercase tracking-wider text-good">Worked well</div>
-              <p className="mt-1.5 text-sm leading-relaxed">{feedback.strengths[0]}</p>
+              <div className="text-xs font-medium uppercase tracking-wider text-good">Worked</div>
+              <p className="mt-1.5 text-sm leading-relaxed">{feedback.strengths[0] ?? "Honestly, nothing in this answer stood out yet."}</p>
             </div>
             <div className="rounded-xl bg-warn-soft/70 p-4">
-              <div className="text-xs font-medium uppercase tracking-wider text-warn">Try next time</div>
-              <p className="mt-1.5 text-sm leading-relaxed">{feedback.improvements[0] ?? "Keep this level up on the next question."}</p>
+              <div className="text-xs font-medium uppercase tracking-wider text-warn">Fix this</div>
+              <ul className="mt-1.5 space-y-1.5 text-sm leading-relaxed">
+                {(feedback.improvements.length ? feedback.improvements : ["Keep this level up on the next question."]).map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
             </div>
-          </div>
-          <div className="mt-5 flex justify-end">
-            <button className="btn btn-primary" onClick={next} autoFocus>
-              {pendingNext ? (pendingNext.isFollowUp ? "Answer the follow-up" : "Next question") : "See my report"}
-            </button>
           </div>
         </section>
       )}

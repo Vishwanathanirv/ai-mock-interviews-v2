@@ -10,6 +10,8 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 
 ## Highlights
 
+- **A real conversation, hands-free.** No answer or send buttons: the interviewer asks, the microphone opens, and an end-of-turn detector (silence measured from the audio and from new words, with more patience for short answers) decides when you have finished. "That's it" ends a turn early; "can you repeat the question?" gets the question again instead of a grade; a long silence gets one gentle nudge. She reacts to what you actually said, then moves on or digs in.
+- **Brutally honest, like a real hiring manager.** Gemini plays a senior interviewer who says when an answer would not pass, quotes what you said, and flags red flags (an unprofessional setting, a non-answer, a dismissive tone). Without AI, a rules engine catches the same red flags and caps the score. Uses current Gemini models with automatic fallback (`gemini-3.8-flash`, then `gemini-3.5-flash-lite`), because new API keys can no longer use 2.5 Flash.
 - **Feels like a real video call.** A Meet-style room with a lobby (camera preview), an interviewer who talks on screen (her mouth follows the loudness of her voice), your camera tile, live captions, a call clock, and mic, camera, repeat, type and leave controls. The interviewer acknowledges each answer ("Okay, thanks.") and leads into follow-ups the way a person would.
 - **A natural interviewer voice.** With a Gemini key, questions are spoken by Gemini text-to-speech (`gemini-3.8-flash-tts`, voice "Achird"), fetched ahead of time so there is no gap, and cached. Without a key, or if the call fails, the browser's best voice takes over automatically.
 - **Video analysis on your device.** With the camera on, face tracking runs in the browser (Human / TensorFlow.js on WebGL, models served by this site, nothing uploaded): eye contact from head pose and gaze, look-aways, smiling, head movement, framing and lighting, all turned into feedback and a report section. Checked in Chromium with a fake webcam showing a public-domain portrait: the face was found whenever it was in view and never in empty frames, read as looking at the camera, and its smile detected.
@@ -122,9 +124,9 @@ Voice answers work in Chrome and Edge. Other browsers use the typing mode automa
 
 ```bash
 npm run lint && npm run typecheck
-npm test            # 46 unit tests (Vitest), including the DSP and the mastery model
+npm test            # 64 unit tests (Vitest), including the DSP, turn-taking and the mastery model
 npm run build
-npm run test:e2e    # 5 end-to-end tests (Playwright); one feeds generated speech through a fake microphone
+npm run test:e2e    # 6 end-to-end tests (Playwright): a full hands-free interview, and generated speech through a fake microphone
 ```
 
 GitHub Actions runs all of these on every push.

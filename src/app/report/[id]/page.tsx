@@ -206,13 +206,19 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                       <Bar key={k} label={k} value={t.evaluation.breakdown[k]} />
                     ))}
                   </div>
+                  {t.evaluation.reaction && (
+                    <p className="mt-5 text-sm italic text-muted">&ldquo;{t.evaluation.reaction}&rdquo; <span className="not-italic text-faint">— Maya</span></p>
+                  )}
+                  {t.evaluation.redFlags?.length ? (
+                    <p className="mt-4 rounded-xl bg-bad-soft px-4 py-3 text-sm text-bad">
+                      <b>Red flag:</b> {t.evaluation.redFlags.join(", ")}
+                    </p>
+                  ) : null}
                   <div className="mt-5 grid gap-5 sm:grid-cols-2">
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wider text-good">Strengths</div>
                       <ul className="mt-2 space-y-1.5 text-sm leading-relaxed">
-                        {t.evaluation.strengths.map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
+                        {t.evaluation.strengths.length ? t.evaluation.strengths.map((x) => <li key={x}>{x}</li>) : <li className="text-muted">Nothing stood out in this answer.</li>}
                       </ul>
                     </div>
                     <div>
