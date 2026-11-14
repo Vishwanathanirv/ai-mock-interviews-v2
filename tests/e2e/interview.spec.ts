@@ -23,6 +23,7 @@ test("guest can complete a full interview by voice and see a report", async ({ p
   await expect(page.getByLabel("Your answer")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Type instead|Repeat question/ })).toHaveCount(0);
   await page.waitForURL(/\/report\//, { timeout: 90_000 });
+  await expect(page.getByLabel("Hiring decision")).toBeVisible();
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText("Answer by answer")).toBeVisible();
   await expect(page.getByRole("img", { name: /Overall score \d+ out of 100/ })).toBeVisible();

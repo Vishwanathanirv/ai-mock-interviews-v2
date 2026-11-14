@@ -6,7 +6,8 @@ import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { scoreAnswer } from "./analyzer";
 import { estimateMastery } from "./mastery";
 import { findQuestion } from "./bank";
-import { aiEnabled, evaluateWithAI, summarizeWithAI } from "./gemini";
+import { closingRules } from "./closing";
+import { aiEnabled, closingWithAI, evaluateWithAI, summarizeWithAI } from "./gemini";
 import { buildReport, firstQuestion, pickNext } from "./planner";
 import type { AnswerEvaluation, AskedQuestion, HistoryItem, InterviewConfig, Role, Level, Focus } from "./types";
 
@@ -143,6 +144,28 @@ export async function finishInterview(userId: string, id: string) {
     .set({ status: "completed", report, overallScore: report.overall, currentQuestion: null, completedAt: new Date() })
     .where(eq(schema.interviews.id, id));
   return report;
+}
+
+/**
+ * The candidate's answer to "Do you have any questions for me?": the interviewer replies, and
+ * the report notes how it would land. Only once, and only after the last answer.
+ */
+export async function closeInterview(userId: string, id: string, question: string) {
+  const db = await getDb();
+  const row = await owned(userId, id);
+  if (row.status !== "completed" || !row.report) throw new ConflictError("Finish the interview first.");
+  if (row.report.closing) return row.report.closing;
+  const rules = closingRules(question);
+  let closing = { question: question.trim().slice(0, 1000), ...rules };
+  if (row.provider === "ai" && aiEnabled() && rules.asked) {
+    try {
+      closing = { ...closing, ...(await closingWithAI(configOf(row), question)) };
+    } catch (err) {
+      console.warn("[ai] closing reply failed:", (err as Error).message);
+    }
+  }
+  await db.update(schema.interviews).set({ report: { ...row.report, closing } }).where(eq(schema.interviews.id, id));
+  return closing;
 }
 
 export async function deleteInterview(userId: string, id: string) {

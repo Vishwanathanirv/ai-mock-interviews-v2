@@ -3,7 +3,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Room } from "@/components/Room";
 import { getSession } from "@/lib/auth/session";
 import { getInterview, NotFoundError } from "@/lib/interview/service";
-import { LEVEL_LABELS, ROLE_LABELS, type Level, type Role } from "@/lib/interview/types";
+import { LEVEL_LABELS, ROLE_LABELS, ROLE_TEAMS, type Level, type Role } from "@/lib/interview/types";
 
 export const metadata = { title: "Interview" };
 export const dynamic = "force-dynamic";
@@ -31,6 +31,7 @@ export default async function InterviewPage({ params }: { params: Promise<{ id: 
         <Room
           id={id}
           title={`${LEVEL_LABELS[interview.level as Level]} ${ROLE_LABELS[interview.role as Role]}`}
+          team={ROLE_TEAMS[interview.role as Role] ?? "the engineering team"}
           provider={interview.provider}
           total={interview.totalQuestions}
           answered={turns.length}

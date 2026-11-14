@@ -58,3 +58,6 @@ export const AnswerInput = z.object({
   voice: VoiceInput.optional(),
   video: VideoInput.optional(),
 });
+
+/** The candidate's reply to "Do you have any questions for me?" (empty means none). */
+export const ClosingInput = z.object({ question: z.string().trim().max(2000).default("") });

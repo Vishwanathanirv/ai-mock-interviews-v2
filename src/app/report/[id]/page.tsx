@@ -51,7 +51,22 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        <section className="card mt-8 grid gap-8 p-6 sm:p-8 md:grid-cols-[auto_1fr]">
+        {report.decision && (
+          <section className={`mt-8 rounded-2xl border-l-4 p-6 sm:p-7 ${report.decision.nextRound ? "border-good bg-good-soft/60" : "border-bad bg-bad-soft/60"}`} aria-label="Hiring decision">
+            <p className="text-sm text-muted">If this were the real interview, the panel&apos;s call</p>
+            <p className={`mt-1 font-display text-3xl font-semibold tracking-tight ${report.decision.nextRound ? "text-good" : "text-bad"}`}>
+              {report.decision.call}
+              <span className="ml-3 align-middle text-base font-normal text-muted">{report.decision.nextRound ? "You'd move to the next round." : "You wouldn't move forward yet."}</span>
+            </p>
+            <ul className="mt-4 space-y-1.5 leading-relaxed">
+              {report.decision.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="card mt-4 grid gap-8 p-6 sm:p-8 md:grid-cols-[auto_1fr]">
           <div className="flex flex-col items-center gap-3">
             <ScoreRing score={report.overall} />
             <span className={`rounded-full px-3 py-1 text-sm font-medium ${verdictTone}`}>{report.verdict}</span>
@@ -70,10 +85,29 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </div>
         </section>
 
+        {report.closing && (
+          <section className="card mt-4 p-5 sm:p-6" aria-label="Your questions for the interviewer">
+            <h2 className="font-medium">&ldquo;Do you have any questions for me?&rdquo;</h2>
+            {report.closing.asked ? (
+              <>
+                <p className="mt-3 leading-relaxed">
+                  <span className="text-muted">You asked: </span>&ldquo;{report.closing.question}&rdquo;
+                </p>
+                <p className="mt-2 text-sm italic leading-relaxed text-muted">
+                  &ldquo;{report.closing.reply}&rdquo; <span className="not-italic text-faint">— Maya</span>
+                </p>
+              </>
+            ) : (
+              <p className="mt-3 text-muted">You didn&apos;t ask anything.</p>
+            )}
+            <p className={`mt-3 rounded-xl px-4 py-3 text-sm leading-relaxed ${report.closing.asked ? "bg-surface-2" : "bg-warn-soft text-warn"}`}>{report.closing.note}</p>
+          </section>
+        )}
+
         <section className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="card p-5">
             <div className="text-sm text-muted">Speaking pace</div>
-            <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.avgWpm ? `${report.delivery.avgWpm} wpm` : "Typed"}</div>
+            <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.avgWpm ? `${report.delivery.avgWpm} wpm` : "–"}</div>
             <div className="mt-1 text-xs text-faint">Aim for 120 to 160</div>
           </div>
           <div className="card p-5">

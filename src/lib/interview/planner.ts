@@ -4,11 +4,13 @@ import type {
   AskedQuestion,
   BankQuestion,
   FinalReport,
+  HireCall,
   HistoryItem,
   InterviewConfig,
   Level,
   ScoreBreakdown,
 } from "./types";
+import { LEVEL_LABELS, ROLE_LABELS } from "./types";
 
 const START_DIFFICULTY: Record<Level, number> = { intern: 1, junior: 1.5, mid: 2, senior: 2.5 };
 
@@ -123,16 +125,18 @@ export function buildReport(cfg: InterviewConfig, history: HistoryItem[], source
   const weakest = (Object.entries(breakdown) as [keyof ScoreBreakdown, number][]).sort((a, b) => a[1] - b[1])[0][0];
   const strongest = (Object.entries(breakdown) as [keyof ScoreBreakdown, number][]).sort((a, b) => b[1] - a[1])[0][0];
 
+  const decision = hiringDecision(cfg, history, overall, breakdown);
   return {
     overall,
     verdict,
     summary:
       summary ??
-      `${verdict === "Strong" ? "A strong interview." : verdict === "Promising" ? "A solid base with clear room to grow." : "A good first practice run."} Your strongest area was ${strongest}; the biggest gains will come from ${weakest}.`,
+      `${decision.nextRound ? "As it stands, this would likely get you to the next round." : "As it stands, this wouldn't pass a real interview."} Your strongest area was ${strongest}; the biggest gains will come from ${weakest}.`,
     breakdown,
     strengths: tally(evals.flatMap((e) => e.strengths)).slice(0, 4),
     improvements: tally(evals.flatMap((e) => e.improvements)).slice(0, 4),
     studyTopics: missingTopics.slice(0, 6),
+    decision,
     delivery: { avgWpm: wpms.length ? Math.round(avg(wpms)) : null, fillerRate: words ? +(fillers / words).toFixed(3) : 0, totalWords: words, totalMinutes: minutes, ...voiceSummary(evals), ...videoSummary(evals) },
     source,
   };
@@ -172,4 +176,44 @@ function videoSummary(evals: AnswerEvaluation[]): { video?: FinalReport["deliver
       lighting: mode(vs.map((v) => v.lighting)),
     },
   };
+}
+
+/** The score a candidate needs to clear at each level, like a hiring panel's bar. */
+export const HIRE_BAR: Record<Level, number> = { intern: 55, junior: 60, mid: 66, senior: 72 };
+const CALLS: HireCall[] = ["No hire", "Lean no hire", "Lean hire", "Hire", "Strong hire"];
+
+/**
+ * What a real hiring panel would decide. The score sets the starting call against the bar for
+ * the level; conduct problems and non-answers cap it, because in a real interview they decide
+ * the outcome on their own, however good the other answers were.
+ */
+export function hiringDecision(cfg: InterviewConfig, history: HistoryItem[], overall: number, breakdown: ScoreBreakdown): NonNullable<FinalReport["decision"]> {
+  const bar = HIRE_BAR[cfg.level];
+  let rank = overall >= bar + 15 ? 4 : overall >= bar + 5 ? 3 : overall >= bar ? 2 : overall >= bar - 10 ? 1 : 0;
+  const reasons = [`You scored ${overall} against a bar of ${bar} for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]}.`];
+
+  const flags = new Set(history.flatMap((h) => h.evaluation.redFlags ?? []));
+  const conduct = [...flags].filter((f) => f !== "no real answer");
+  if (conduct.length) {
+    rank = Math.min(rank, 1);
+    reasons.push(`How you came across (${conduct.join(", ")}) would end most real interviews on its own, whatever the answers were.`);
+  }
+  const passes = history.filter((h) => h.evaluation.redFlags?.includes("no real answer")).length;
+  if (passes >= 2 || (passes === 1 && history.length <= 3)) {
+    rank = Math.min(rank, 1);
+    reasons.push(`You gave up on ${passes === 1 ? "a question" : `${passes} questions`} without trying. Panels count that heavily: reasoning out loud almost always scores better than passing.`);
+  }
+  const tech = history.filter((h) => h.question.kind === "technical");
+  if (cfg.level === "senior" && tech.length && !tech.some((h) => h.evaluation.score >= 70)) {
+    rank = Math.min(rank, 2);
+    reasons.push("At senior level the panel needs at least one technical answer that shows real depth, and none did.");
+  }
+  const areas = Object.entries(breakdown) as [keyof ScoreBreakdown, number][];
+  const best = [...areas].sort((a, b) => b[1] - a[1])[0];
+  const worst = [...areas].sort((a, b) => a[1] - b[1])[0];
+  if (best[1] >= 70) reasons.push(`Your ${best[0]} held up well (${best[1]}).`);
+  if (worst[1] < bar) reasons.push(`Your ${worst[0]} was below the bar (${worst[1]}), and that's what would hold you back.`);
+
+  const call = CALLS[rank];
+  return { call, bar, nextRound: rank >= 2, reasons };
 }

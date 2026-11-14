@@ -6,7 +6,6 @@ import type { AnswerEvaluation, AskedQuestion } from "@/lib/interview/types";
 import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { Interviewer } from "./Interviewer";
-import { ScorePill } from "./ScoreRing";
 import { useCamera } from "./useCamera";
 import { decideTurn } from "@/lib/voice/turn";
 import { useVoice } from "./useVoice";
@@ -16,6 +15,8 @@ type Phase = "intro" | "asking" | "ready" | "listening" | "submitting" | "reacti
 type Props = {
   id: string;
   title: string;
+  /** How Maya introduces her team ("the platform team"). */
+  team: string;
   provider: string;
   total: number;
   answered: number;
@@ -24,11 +25,14 @@ type Props = {
 
 const INTERVIEWER = "Maya";
 
-/** What a person would say after hearing an answer, before moving on. */
-function acknowledge(score: number, seed: number) {
-  const lines = score >= 75 ? ["Great, thank you.", "That's a strong answer, thanks.", "Nice, that's clear."] : score >= 50 ? ["Okay, thanks.", "Alright, got it.", "Thanks for that."] : ["Okay, thank you.", "Alright, let's keep going.", "Thanks, that's fine."];
+/** What a person would say after hearing an answer, before moving on. Never a grade. */
+function acknowledge(seed: number) {
+  const lines = ["Okay, thanks.", "Alright, got it.", "Thanks for that.", "Right, okay."];
   return lines[seed % lines.length];
 }
+
+const CLOSING_ASK = "That's all my questions from my side. Before we wrap up, do you have any questions for me?";
+const CUT_IN = "Sorry to cut in. In the interest of time, let me stop you there.";
 
 function lead(q: AskedQuestion, n: number) {
   if (q.isFollowUp) return "I'd like to dig into that a little more.";
@@ -75,7 +79,7 @@ function CallButton({ label, onClick, active, danger, disabled, children, wide }
   );
 }
 
-export function Room({ id, title, provider, total, answered, question: initial }: Props) {
+export function Room({ id, title, team, provider, total, answered, question: initial }: Props) {
   const router = useRouter();
   const voice = useVoice();
   const camera = useCamera();
@@ -84,7 +88,6 @@ export function Room({ id, title, provider, total, answered, question: initial }
   const [phase, setPhase] = useState<Phase>("intro");
   const [elapsed, setElapsed] = useState(0);
   const [callSec, setCallSec] = useState(0);
-  const [feedback, setFeedback] = useState<AnswerEvaluation | null>(null);
   const [caption, setCaption] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
@@ -92,6 +95,8 @@ export function Room({ id, title, provider, total, answered, question: initial }
   const asked = useRef(0);
   const nudged = useRef(false);
   const turnBusy = useRef(false);
+  /** True once the questions are done and she has asked "any questions for me?". */
+  const closing = useRef(false);
   const transcript = useRef("");
   transcript.current = `${voice.finalText} ${voice.interim}`.trim();
 
@@ -145,12 +150,19 @@ export function Room({ id, title, provider, total, answered, question: initial }
     async (q: AskedQuestion) => {
       setError(null);
       setPhase("asking");
-      const intro = lead(q, asked.current++);
+      const n = asked.current++;
+      // The opening, like a real call: who she is, what to expect, then the first question.
+      const intro =
+        n === 0
+          ? answered === 0
+            ? `Hi, I'm ${INTERVIEWER}. I lead ${team} here. Thanks for making the time today. We'll go through about ${total} questions, so roughly ${Math.max(10, total * 3)} minutes. Take your time and think out loud. Let's start.`
+            : "Welcome back. Let's pick up where we left off."
+          : lead(q, n);
       if (intro) await say(intro);
       await say(q.text);
       await listen();
     },
-    [say, listen],
+    [say, listen, answered, team, total],
   );
 
   async function join() {
@@ -182,31 +194,51 @@ export function Room({ id, title, provider, total, answered, question: initial }
       const evaluation = data.evaluation as AnswerEvaluation;
       const next = data.next as AskedQuestion | null;
       setCount((c) => c + 1);
-      setFeedback(evaluation);
       if (next) voice.prefetch(next.text);
+      else voice.prefetch(CLOSING_ASK);
       setPhase("reacting");
-      await say(evaluation.reaction ?? acknowledge(evaluation.score, count));
+      await say(evaluation.reaction ?? acknowledge(count));
       if (next) {
         setQuestion(next);
         await ask(next);
         return;
       }
+      // The end of a real interview: her questions are done, now it's yours.
+      closing.current = true;
+      setPhase("asking");
+      await say(CLOSING_ASK);
+      await listen();
+    },
+    [id, voice, say, ask, listen, count],
+  );
+
+  /** Her reply to the candidate's question, then goodbye, then the written feedback. */
+  const closeOut = useCallback(
+    async (asked: string) => {
       setPhase("finishing");
-      await say("That's all my questions. Thank you for your time. I'll put your report together now.");
+      setCaption(null);
+      const res = await fetch(`/api/interviews/${id}/closing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: asked }) });
+      const data = await res.json().catch(() => ({}));
+      await say(res.ok && data.closing?.reply ? data.closing.reply : "Thanks again for your time today, it was good talking to you.");
       camera.stop();
       router.push(`/report/${id}`);
       router.refresh();
     },
-    [id, voice, say, ask, camera, router, count],
+    [id, say, camera, router],
   );
 
   /** Ends the candidate's spoken turn and submits it. */
   const finishTurn = useCallback(
-    async (fallback?: string) => {
+    async (fallback?: string, cutIn = false) => {
       if (turnBusy.current) return;
       turnBusy.current = true;
       const { text, voice: measured } = voice.stop();
       const video = camera.stopAnalysis();
+      if (cutIn) await say(CUT_IN);
+      if (closing.current) {
+        await closeOut(text.trim() || fallback || "");
+        return;
+      }
       const answer = text.trim() || fallback || "";
       if (!answer) {
         await say("Sorry, I didn't catch that. Could you say it again?");
@@ -215,7 +247,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
       }
       await send(answer, (Date.now() - startedAt.current) / 1000, { voice: measured, video });
     },
-    [voice, camera, say, listen, send],
+    [voice, camera, say, listen, send, closeOut],
   );
 
   // While the candidate talks, decide several times a second whether their turn is over.
@@ -223,12 +255,18 @@ export function Room({ id, title, provider, total, answered, question: initial }
     if (phase !== "listening") return;
     const iv = setInterval(() => {
       if (turnBusy.current) return;
+      // A short "No, thanks" is a complete reply to "any questions for me?".
+      if (closing.current && transcript.current && voice.quietFor() >= 2500) {
+        void finishTurn();
+        return;
+      }
       const d = decideTurn({ transcript: transcript.current, quietMs: voice.quietFor(), sinceStartMs: Date.now() - startedAt.current, nudged: nudged.current });
       if (d === "end") void finishTurn();
-      else if (d === "give-up") void finishTurn("I don't have an answer for this one.");
+      else if (d === "cut-in") void finishTurn(undefined, true);
+      else if (d === "give-up") void finishTurn(closing.current ? "" : "I don't have an answer for this one.");
       else if (d === "repeat" || d === "nudge") {
         turnBusy.current = true;
-        const line = d === "repeat" ? `Sure. ${question.text}` : "Take your time. Whenever you're ready.";
+        const line = d === "repeat" ? `Sure. ${closing.current ? "Do you have any questions for me?" : question.text}` : "Take your time. Whenever you're ready.";
         voice.stop();
         camera.stopAnalysis();
         void (async () => {
@@ -293,9 +331,10 @@ export function Room({ id, title, provider, total, answered, question: initial }
             A live conversation with {INTERVIEWER}: she asks, you just talk, and when you pause she takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
           </p>
           <ul className="mt-4 space-y-1.5 text-sm text-muted">
-            <li>• Voice only, like the real thing. No typing, no buttons, and one take per answer: once you stop talking, it counts.</li>
+            <li>• Like the real thing: she introduces herself, asks her questions with follow-ups, then asks if you have any questions for her. Scores and feedback come only at the end.</li>
+            <li>• Voice only. No typing, no buttons, and one take per answer: once you stop talking, it counts.</li>
             <li>• Stop talking for a couple of seconds and she&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner. Didn&apos;t catch the question? Ask her to repeat it, out loud.</li>
-            <li>• Expect honest feedback. She will tell you when an answer wouldn&apos;t pass a real interview.</li>
+            <li>• Expect brutally honest feedback at the end, including whether a real panel would move you to the next round.</li>
             <li>• Turn your camera on for feedback on eye contact, expression and posture.</li>
             <li>• Video is analysed on this device and never uploaded or saved.</li>
           </ul>
@@ -313,7 +352,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
   // ---------- the call ----------
   const yourCaption = listening ? transcript.current : "";
   const status =
-    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? "Your turn: just talk" : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : "Microphone is off";
+    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? (closing.current ? "Your turn: ask her anything" : "Your turn: just talk") : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : "Microphone is off";
   return (
     <div className="mx-auto max-w-6xl">
       <div className="overflow-hidden rounded-2xl bg-[#0f1115] text-white">
@@ -410,42 +449,6 @@ export function Room({ id, title, provider, total, answered, question: initial }
         </p>
       )}
 
-      {feedback && (
-        <section className="card mt-4 animate-rise p-5" aria-label="Notes on your last answer">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <ScorePill score={feedback.score} />
-              <span className="font-medium">Quick feedback</span>
-              <span className="text-sm text-muted">on your last answer</span>
-            </div>
-            <span className="text-xs text-faint">
-              {feedback.metrics.words} words{feedback.metrics.wpm ? ` · ${feedback.metrics.wpm} wpm` : ""}
-              {feedback.metrics.fillerCount ? ` · ${feedback.metrics.fillerCount} fillers` : ""}
-              {feedback.metrics.voice?.pitchSdSemitones != null ? ` · pitch varied ${feedback.metrics.voice.pitchSdSemitones} st${feedback.metrics.voice.monotone ? " (flat)" : ""}` : ""}
-              {feedback.metrics.video ? ` · eye contact ${feedback.metrics.video.eyeContactPct}%` : ""}
-            </span>
-          </div>
-          {feedback.redFlags?.length ? (
-            <p className="mt-4 rounded-xl bg-bad-soft px-4 py-3 text-sm text-bad">
-              <b>Red flag:</b> {feedback.redFlags.join(", ")}. This alone could cost you a real interview.
-            </p>
-          ) : null}
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl bg-good-soft/70 p-4">
-              <div className="text-xs font-medium uppercase tracking-wider text-good">Worked</div>
-              <p className="mt-1.5 text-sm leading-relaxed">{feedback.strengths[0] ?? "Honestly, nothing in this answer stood out yet."}</p>
-            </div>
-            <div className="rounded-xl bg-warn-soft/70 p-4">
-              <div className="text-xs font-medium uppercase tracking-wider text-warn">Fix this</div>
-              <ul className="mt-1.5 space-y-1.5 text-sm leading-relaxed">
-                {(feedback.improvements.length ? feedback.improvements : ["Keep this level up on the next question."]).map((x) => (
-                  <li key={x}>{x}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-      )}
       {phase === "finishing" && <p className="mt-4 text-center text-sm text-muted">Building your report…</p>}
     </div>
   );

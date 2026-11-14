@@ -1,7 +1,7 @@
 import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 
-export const ROLES = ["frontend", "backend", "fullstack", "devops", "security", "data"] as const;
+export const ROLES = ["frontend", "backend", "fullstack", "java", "mobile", "qa", "devops", "cloud", "network", "security", "data", "analyst", "product"] as const;
 export const LEVELS = ["intern", "junior", "mid", "senior"] as const;
 export const FOCUSES = ["technical", "behavioral", "mixed"] as const;
 
@@ -72,9 +72,11 @@ export type AnswerEvaluation = {
   source: "ai" | "rules";
   /** Things that would hurt the candidate in a real interview. */
   redFlags?: string[];
-  /** What the interviewer says out loud after this answer. */
+  /** What the interviewer says out loud after this answer (in character: no grades). */
   reaction?: string;
 };
+
+export type HireCall = "Strong hire" | "Hire" | "Lean hire" | "Lean no hire" | "No hire";
 
 export type FinalReport = {
   overall: number;
@@ -94,6 +96,10 @@ export type FinalReport = {
     video?: { answers: number; eyeContactPct: number; lookAwaysPerAnswer: number; smilePct: number; movement: number; framing: string; lighting: string };
   };
   source: "ai" | "rules";
+  /** What a hiring panel would decide, against the bar for this level. */
+  decision?: { call: HireCall; bar: number; nextRound: boolean; reasons: string[] };
+  /** The "any questions for me?" moment at the end. */
+  closing?: { question: string; reply: string; note: string; asked: boolean };
 };
 
 export type InterviewConfig = {
@@ -114,6 +120,30 @@ export const ROLE_LABELS: Record<Role, string> = {
   devops: "DevOps / Linux Engineer",
   security: "Security Engineer",
   data: "Data / ML Engineer",
+  java: "Java Developer",
+  mobile: "Mobile Developer",
+  qa: "QA / Test Automation Engineer",
+  cloud: "Cloud / SRE Engineer",
+  network: "Network Engineer",
+  analyst: "Data Analyst",
+  product: "Product Manager",
+};
+
+/** How the interviewer introduces her team, so the opening sounds like a real company. */
+export const ROLE_TEAMS: Record<Role, string> = {
+  frontend: "the web team",
+  backend: "the platform team",
+  fullstack: "the product engineering team",
+  java: "the core services team",
+  mobile: "the mobile team",
+  qa: "the quality engineering team",
+  devops: "the infrastructure team",
+  cloud: "the reliability team",
+  network: "the network operations team",
+  security: "the security team",
+  data: "the machine learning team",
+  analyst: "the analytics team",
+  product: "the product team",
 };
 
 export const LEVEL_LABELS: Record<Level, string> = {

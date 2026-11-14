@@ -38,4 +38,15 @@ describe("hands-free turn-taking", () => {
     expect(t("", 5_000, 5_000)).toBe("continue");
     expect(t("Um", 4_000)).toBe("continue");
   });
+
+  it("waits much longer when the candidate asks for a moment", () => {
+    expect(t("Good question, let me think.", 4_000)).toBe("continue");
+    expect(t("Hmm, give me a second", 8_000)).toBe("continue");
+    expect(t("Good question, let me think.", 9_500)).toBe("end");
+  });
+
+  it("cuts in politely when an answer runs past three minutes", () => {
+    expect(t("and then we also did a lot of other things with the system", 100, 181_000)).toBe("cut-in");
+    expect(t("and then we also did a lot of other things with the system", 100, 170_000)).toBe("continue");
+  });
 });

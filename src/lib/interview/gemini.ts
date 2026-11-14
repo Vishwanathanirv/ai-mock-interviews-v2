@@ -2,7 +2,15 @@ import "server-only";
 import { z } from "zod";
 import { weighted } from "./analyzer";
 import type { AnswerEvaluation, AskedQuestion, FinalReport, InterviewConfig } from "./types";
-import { LEVEL_LABELS, ROLE_LABELS } from "./types";
+import { LEVEL_LABELS, ROLE_LABELS, ROLE_TEAMS, type Level } from "./types";
+
+/** What a panel expects at each level, so grading is calibrated rather than one-size-fits-all. */
+const LEVEL_BAR: Record<Level, string> = {
+  intern: "correct fundamentals in their own words and a willingness to reason; gaps are fine if they think out loud",
+  junior: "correct fundamentals, one concrete example from their own work, and a sensible approach",
+  mid: "real experience: specific examples, trade-offs, debugging steps and what they would do differently",
+  senior: "depth and judgement: trade-offs at scale, failure modes, measurable impact, and how they lead or influence others",
+};
 
 /**
  * Models to try, newest first. Google limits older models (such as 2.5 Flash) to accounts that
@@ -101,7 +109,8 @@ export async function evaluateWithAI(
     `You are Maya, a senior hiring manager interviewing a candidate for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} role over video.`,
     `You are brutally honest, like a real interviewer who has seen hundreds of candidates: direct, specific, never vague praise, never cruel.`,
     `If the answer is evasive, rambling, generic, wrong, off-topic, joking, or unprofessional (for example lying in bed, distractions, admitting they are not paying attention), say so plainly and explain how it lands with a real interviewer.`,
-    `Calibrate to the level: a ${LEVEL_LABELS[cfg.level]} answer is not expected to be expert-level, but it must answer the question.`,
+    `Calibrate to the level. A ${LEVEL_LABELS[cfg.level]} panel expects ${LEVEL_BAR[cfg.level]}.`,
+    `Score anchors (for this level): 90-100 would impress the panel; 70-89 a clear pass; 55-69 borderline; 35-54 below the bar; under 35 did not really answer. Most answers in real interviews land between 45 and 75; do not inflate.`,
     context.length ? `Earlier in this interview:\n${context.slice(-3).map((c) => `Q: ${c.q}\nA: ${c.a.slice(0, 300)}`).join("\n")}` : "",
     `Question (${q.kind}, topic: ${q.topic}): ${q.text}`,
     `Concepts a strong answer usually covers: ${q.concepts.map((c) => c[0]).join(", ")}.`,
@@ -115,7 +124,7 @@ export async function evaluateWithAI(
     `- strengths: up to 3 specific sentences addressed to "you". Leave empty if nothing genuinely worked; do not invent praise.`,
     `- improvements: up to 3 blunt, specific, actionable sentences addressed to "you", most important first. Quote or refer to what they actually said.`,
     `- redFlags: short phrases for anything that would hurt them in a real interview (unprofessional setting, dishonesty, no answer). Empty if none.`,
-    `- reaction: what you say out loud right after the answer, 1-2 short spoken sentences, natural and specific to what they said, honest about how it landed. No question in it.`,
+    `- reaction: what you say out loud right after the answer, as a real interviewer in the room: one short, natural spoken sentence. Real interviewers keep their verdict to themselves, so do NOT grade, praise heavily, or list what was missing (that goes in the written feedback). Neutral acknowledgements are normal ("Okay, thanks.", "Right, that makes sense."). Two exceptions: if their conduct is a problem (lying in bed, distractions, joking, refusing), address it directly and politely on the spot; if the answer was very thin, you may say briefly that you'd have liked more detail. No question in it.`,
     `- followUp: one natural follow-up question only if probing a gap is worth it; otherwise omit.`,
   ]
     .filter(Boolean)
@@ -147,13 +156,29 @@ export async function evaluateWithAI(
 
 export async function summarizeWithAI(cfg: InterviewConfig, report: FinalReport, transcript: { q: string; a: string; score: number }[]): Promise<string> {
   const prompt = [
-    `Write a 2-3 sentence debrief for a candidate who just finished a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} mock interview.`,
-    `Overall score ${report.overall}/100 (${report.verdict}). Category averages: ${JSON.stringify(report.breakdown)}.`,
-    `Be candid like a senior hiring manager: say plainly whether this would pass a real interview and why, name one real strength only if there is one, and the single most valuable thing to fix next. Address them as "you".`,
+    `You were the interviewer for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} interview. Write the 3-4 sentence feedback you would give the candidate after the hiring panel met.`,
+    `Overall score ${report.overall}/100 against a bar of ${report.decision?.bar ?? "?"}. Panel decision: ${report.decision?.call ?? report.verdict}. Category averages: ${JSON.stringify(report.breakdown)}.`,
+    `Be brutally honest and specific, like a senior hiring manager who respects them enough to tell the truth: state the decision and the main reason for it, quote or point to a specific answer, name one real strength only if there is one, and the single most valuable thing to fix before a real interview. Address them as "you". No sugar-coating, no cruelty.`,
     `Transcript:\n${transcript.map((t, i) => `Q${i + 1} (${t.score}/100): ${t.q}\nA: ${t.a.slice(0, 600)}`).join("\n")}`,
   ].join("\n");
   const raw = await callGemini(prompt, { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] });
   return z.object({ summary: z.string().min(10).max(800) }).parse(raw).summary;
+}
+
+/**
+ * The interviewer answers the candidate's own question at the end, briefly and in character,
+ * and notes how the question would land with a real panel.
+ */
+export async function closingWithAI(cfg: InterviewConfig, question: string): Promise<{ reply: string; note: string }> {
+  const prompt = [
+    `You are Maya, the hiring manager for ${ROLE_TEAMS[cfg.role]} at a mid-sized software company, finishing a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} interview.`,
+    `You asked "Do you have any questions for me?" and the candidate said: """${question.slice(0, 1000)}"""`,
+    `Return:`,
+    `- reply: what you say back out loud, 1-3 short natural sentences. Answer plausibly about a typical team like yours (do not invent a real company name). If they had no question, say that's fine. End warmly but briefly.`,
+    `- note: one or two honest sentences of feedback, addressed to "you", on how this would land with a real interviewer: thoughtful questions about the work, team or how success is measured help; no question, or leading with salary or time off in a first round, can read as low interest.`,
+  ].join("\n");
+  const raw = await callGemini(prompt, { type: "OBJECT", properties: { reply: { type: "STRING" }, note: { type: "STRING" } }, required: ["reply", "note"] });
+  return z.object({ reply: z.string().min(2).max(600), note: z.string().min(5).max(500) }).parse(raw);
 }
 
 /** A tiny live call, so the health check can confirm the key and model really work. */

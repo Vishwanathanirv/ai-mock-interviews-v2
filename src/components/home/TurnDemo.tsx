@@ -21,6 +21,7 @@ const OUTCOME: Record<TurnDecision, string> = {
   repeat: "Maya repeats the question.",
   nudge: "Maya checks in.",
   "give-up": "Maya moves on.",
+  "cut-in": "Maya politely cuts in.",
 };
 
 export function TurnDemo() {

@@ -103,14 +103,19 @@ const pick = <T,>(xs: T[], key: string) => {
   return xs[Math.abs(h) % xs.length];
 };
 
-/** What the interviewer says right after an answer when grading without AI. Honest, short, specific. */
-export function rulesReaction(q: AskedQuestion, e: Pick<AnswerEvaluation, "score" | "covered" | "missing" | "redFlags" | "metrics">, answer: string): string {
-  if (e.redFlags?.includes("unprofessional setting")) return pick(["I'll be honest: telling an interviewer you're lying down with a game going on behind you would end most interviews right there.", "Honestly, that setting would cost you this job before your answer even mattered. Let's treat this like the real thing."], answer);
-  if (e.redFlags?.includes("no real answer")) return pick(["That's not an answer I can work with. In a real interview, think out loud rather than passing.", "I need you to at least attempt it. Saying you don't know and stopping is the weakest possible answer."], answer);
-  if (e.metrics.words < 15) return pick(["That was very short. I don't have enough to judge you on.", "That's too brief. An interviewer would assume you don't know much about this."], answer);
-  if (e.score >= 75) return pick([`Good. ${e.covered[0] ? `Bringing in ${e.covered[0]} was the right call.` : "That was clear and specific."}`, "That's a solid answer, clear and to the point.", `Nice. That's the kind of detail I was looking for.`], answer);
-  if (e.score >= 50) return e.missing[0] ? pick([`Okay. That's partly there, but you never got to ${e.missing[0]}.`, `Alright. Decent start, though I was waiting to hear about ${e.missing[0]}.`], answer) : "Okay. It's fine, but it needs more specifics to stand out.";
-  return e.missing.length ? pick([`Honestly, that didn't really answer the question. I was listening for ${e.missing.slice(0, 2).join(" and ")}.`, `That missed the point of the question. The key was ${e.missing[0]}.`], answer) : "Honestly, that didn't land. It was too vague to show me what you can do.";
+/**
+ * What the interviewer says right after an answer when grading without AI. In character, like a
+ * real interviewer: she keeps her verdict to herself (that goes in the written feedback), but
+ * she does address conduct on the spot and asks for more when an answer is too thin.
+ */
+export function rulesReaction(_q: AskedQuestion, e: Pick<AnswerEvaluation, "score" | "covered" | "missing" | "redFlags" | "metrics">, answer: string): string {
+  if (e.redFlags?.includes("unprofessional setting")) return pick(["Before we go on, could you sit up and move somewhere quiet? I'd like to treat this like the real interview.", "Let's pause for a second. Please find a quiet spot and sit at a desk, the way you would for the real interview."], answer);
+  if (e.redFlags?.includes("dismissive tone")) return pick(["Let's keep it professional, please.", "I'd ask you to take this seriously, the way you would with a real panel."], answer);
+  if (e.redFlags?.includes("no real answer")) return pick(["That's okay. Let's keep going.", "Alright, we'll move on."], answer);
+  if (e.metrics.words < 15) return pick(["Okay. I'd have liked a bit more detail there, but let's move on.", "Alright. That was quite brief."], answer);
+  if (e.score >= 75) return pick(["Okay, thanks. That's clear.", "Got it, thank you.", "Right, that makes sense."], answer);
+  if (e.score >= 50) return pick(["Okay, thanks.", "Alright.", "Mm-hm, okay."], answer);
+  return pick(["Okay.", "Alright, I see.", "Okay, thank you."], answer);
 }
 
 /** Transparent, rule-based scoring used offline and to ground AI scores with measurable delivery data. */

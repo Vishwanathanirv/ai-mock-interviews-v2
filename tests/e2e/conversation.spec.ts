@@ -12,7 +12,8 @@ const ANSWERS = [
   "Can you repeat the question?",
   "When I was building my payment project my task was to make checkout reliable. I made the webhook handler idempotent with a unique event id so duplicates are ignored, and as a result double orders stopped completely. That's it.",
   "I would add an index on the columns used in the where clause and check the query plan with explain to confirm the index is used.",
-  "I would return 201 for a created resource, 404 when it is missing, and validate input with a schema. That's all.",
+  // After her questions: "Do you have any questions for me?"
+  "What does a typical week look like for someone on your team?",
 ];
 
 test("the interviewer listens, reacts honestly and moves on without any buttons", async ({ page }) => {
@@ -26,18 +27,26 @@ test("the interviewer listens, reacts honestly and moves on without any buttons"
   await page.getByRole("button", { name: "Start interview" }).click();
   await page.getByRole("button", { name: "Join interview" }).click();
 
-  // Turn 1: the unprofessional answer ends by itself after the silence and is called out.
+  // She opens like a real interviewer: who she is and what to expect.
+  await expect.poll(async () => (await spoken(page))[0] ?? "").toMatch(/^Hi, I'm Maya\. I lead the platform team/);
+
+  // Turn 1: the unprofessional answer ends by itself and she addresses it in character, with no score shown.
   await expect(page.getByText("Your turn: just talk")).toBeVisible();
   await expect(page.getByText(/lying down/)).toBeVisible();
-  await expect(page.getByText(/Red flag: unprofessional setting/)).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => (await spoken(page)).some((l) => /quiet/.test(l)), { timeout: 15_000 }).toBe(true);
+  await expect(page.getByText("Quick feedback")).toHaveCount(0);
 
   // Turn 2: asking for a repeat repeats the question instead of grading the request.
   await expect.poll(async () => (await spoken(page)).some((l) => /^Sure\. /.test(l)), { timeout: 15_000 }).toBe(true);
 
-  // The rest of the interview runs to the report with no clicks at all.
+  // The rest of the interview runs to the report with no clicks at all, ending with her asking for questions.
   await page.waitForURL(/\/report\//, { timeout: 60_000 });
+  expect((await spoken(page)).some((l) => /any questions for me\?$/.test(l))).toBe(true);
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText(/Red flag/).first()).toBeVisible();
-  // Her spoken reaction is kept on the report, so it can be checked without racing the caption.
-  await expect(page.getByText(/(lying down|setting).*(interview|job)/).first()).toBeVisible();
+  // The panel's call: conduct problems cap it, however the other answers went.
+  await expect(page.getByLabel("Hiring decision")).toContainText(/No hire/);
+  // Her reply to the candidate's own question is on the report.
+  await expect(page.getByText(/typical week look like/)).toBeVisible();
+  await expect(page.getByText(/A typical week is/)).toBeVisible();
 });

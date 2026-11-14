@@ -1,8 +1,10 @@
+import { MORE_TECHNICAL } from "./bank-roles";
 import type { BankQuestion, Role } from "./types";
 
 const q = (b: BankQuestion) => b;
 
 export const TECHNICAL: Record<Role, BankQuestion[]> = {
+  ...MORE_TECHNICAL,
   frontend: [
     q({ id: "fe-render", kind: "technical", topic: "React rendering", difficulty: 1,
       text: "What happens when state changes in a React component, from the setState call to the pixels on screen?",
@@ -193,6 +195,18 @@ export const BEHAVIORAL: BankQuestion[] = [
   q({ id: "bh-feedback", kind: "behavioral", topic: "Feedback", difficulty: 3,
     text: "Tell me about a piece of critical feedback you received and what you changed because of it.",
     concepts: [["the feedback", "feedback", "told me", "review"], ["how you took it", "reaction", "felt", "understood"], ["what you changed", "changed", "improved", "action"], ["the result", "result", "since then", "now"]],
+    probe: "Can you walk me through {concept}?" }),
+  q({ id: "bh-why-hire", kind: "behavioral", topic: "Motivation", difficulty: 1,
+    text: "Why should we hire you over the other candidates for this role?",
+    concepts: [["skills that match the role", "skill", "experience", "match", "fit"], ["evidence from your work", "project", "built", "result", "example"], ["what you'd bring to the team", "team", "contribute", "bring", "add"], ["honest self-awareness", "still learning", "improve", "weakness", "growing"]],
+    probe: "Can you back that up with {concept}?" }),
+  q({ id: "bh-pressure", kind: "behavioral", topic: "Working under pressure", difficulty: 2,
+    text: "Tell me about a time you had to deliver while something was going wrong around you.",
+    concepts: [["the situation", "situation", "when", "at the time", "context"], ["staying calm and focused", "calm", "focus", "priorit", "step back"], ["what you did", "i decided", "i fixed", "i talked", "action", "i set up"], ["the result", "result", "delivered", "outcome", "learned"]],
+    probe: "Can you walk me through {concept}?" }),
+  q({ id: "bh-lead", kind: "behavioral", topic: "Leadership", difficulty: 3,
+    text: "Tell me about a time you led something without having formal authority.",
+    concepts: [["what needed leading", "situation", "project", "problem", "initiative"], ["how you got people on board", "convinc", "persuad", "aligned", "buy-in", "explain"], ["how you handled pushback", "pushback", "disagree", "concern", "resist"], ["the outcome", "result", "outcome", "shipped", "improved"]],
     probe: "Can you walk me through {concept}?" }),
 ];
 

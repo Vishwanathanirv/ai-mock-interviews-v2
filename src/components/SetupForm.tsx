@@ -11,6 +11,13 @@ const ROLE_HINTS: Record<Role, string> = {
   devops: "Linux, systemd, SELinux, containers, CI/CD",
   security: "Detection, TLS, incident response, AppSec",
   data: "ML evaluation, imbalance, drift, LLM apps",
+  java: "OOP, collections, concurrency, Spring, JVM",
+  mobile: "Lifecycle, offline sync, performance, security",
+  qa: "Test design, automation, flaky tests, API and load testing",
+  cloud: "IAM, high availability, IaC, SLOs, on-call",
+  network: "Subnetting, VLANs, routing, troubleshooting",
+  analyst: "SQL, metrics, A/B tests, dashboards",
+  product: "Prioritisation, metrics, product sense, launches",
 };
 
 const FOCUS: { v: Focus; t: string; d: string }[] = [
