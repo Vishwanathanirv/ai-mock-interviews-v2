@@ -87,19 +87,6 @@ export default function Home() {
           </div>
         </section>
       </main>
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-8 text-sm text-muted sm:px-6">
-          <span>
-            Built by{" "}
-            <a href="https://vishwanathan.dev" className="text-ink underline underline-offset-4">
-              Vishwanathan R
-            </a>
-          </span>
-          <a href="https://github.com/Vishwanathanirv/ai-mock-interviews-v2" className="hover:text-ink">
-            Source on GitHub
-          </a>
-        </div>
-      </footer>
     </>
   );
 }
