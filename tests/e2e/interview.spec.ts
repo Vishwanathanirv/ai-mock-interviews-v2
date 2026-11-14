@@ -1,20 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { fakeVoice } from "./fake-voice";
 
 const GOOD =
   "When I was building my payment project, my task was to make checkout reliable. First I verified the webhook signature with an HMAC. Then I made the handler idempotent with an idempotency key and a unique constraint on the event id, so duplicates are ignored. I return 200 quickly and retry slow work in a background job. As a result we stopped double orders and errors fell by 40 percent.";
 
-async function answerTyped(page: Page, text: string) {
-  // Wait until it is the candidate's turn (by voice, by typing, or paused), then type.
-  await expect(page.getByText(/^(Your turn|Paused)/)).toBeVisible();
-  const box = page.getByLabel("Your answer");
-  if (!(await box.isVisible())) await page.getByRole("button", { name: "Type instead" }).click();
-  await expect(page.getByLabel("Your answer")).toBeEnabled();
-  await page.getByLabel("Your answer").fill(text);
-  await page.getByRole("button", { name: "Submit answer" }).click();
-  await expect(page.getByText("Quick feedback")).toBeVisible();
-}
-
-test("guest can complete a full interview and see a report", async ({ page }) => {
+test("guest can complete a full interview by voice and see a report", async ({ page }) => {
+  await fakeVoice(page, Array(8).fill(GOOD));
   await page.goto("/");
   await page.getByRole("button", { name: "Try it now, no sign-up" }).click();
   await expect(page).toHaveURL(/\/interview\/new/);
@@ -25,16 +16,13 @@ test("guest can complete a full interview and see a report", async ({ page }) =>
   await page.getByRole("button", { name: "Start interview" }).click();
   await expect(page).toHaveURL(/\/interview\/[0-9a-f-]{36}$/);
 
-  await page.getByLabel("Read questions aloud").uncheck();
   await page.getByRole("button", { name: "Join interview" }).click();
 
-  // The interviewer reacts and moves on by herself; there is no "next" button.
-  for (let i = 0; i < 6 && !/\/report\//.test(page.url()); i++) {
-    await answerTyped(page, GOOD);
-    await Promise.race([page.waitForURL(/\/report\//, { timeout: 15_000 }).catch(() => {}), expect(page.getByLabel("Your answer")).toBeEnabled({ timeout: 15_000 }).catch(() => {})]);
-  }
-
-  await expect(page).toHaveURL(/\/report\//);
+  // Voice only: no typing box and no repeat button, and the interview runs to the report by itself.
+  await expect(page.getByText("Your turn: just talk")).toBeVisible();
+  await expect(page.getByLabel("Your answer")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Type instead|Repeat question/ })).toHaveCount(0);
+  await page.waitForURL(/\/report\//, { timeout: 90_000 });
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText("Answer by answer")).toBeVisible();
   await expect(page.getByRole("img", { name: /Overall score \d+ out of 100/ })).toBeVisible();
@@ -104,4 +92,17 @@ test("api validates input", async ({ request }) => {
   expect(bad.status()).toBe(400);
   const unauth = await (await (await import("@playwright/test")).request.newContext({ baseURL: test.info().project.use.baseURL })).get("/api/interviews");
   expect(unauth.status()).toBe(401);
+});
+
+test("browsers that can't listen are told to switch, not offered a typing fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    delete (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
+    delete (window as unknown as Record<string, unknown>).SpeechRecognition;
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try it now, no sign-up" }).click();
+  await page.getByRole("button", { name: /Backend Developer/ }).click();
+  await page.getByRole("button", { name: "Start interview" }).click();
+  await expect(page.getByText(/voice only, and this browser can't listen/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Join interview" })).toBeDisabled();
 });

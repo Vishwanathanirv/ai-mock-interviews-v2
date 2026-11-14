@@ -112,7 +112,7 @@ export function useVoice() {
       }
       return true;
     } catch {
-      setError("Microphone access was blocked. Allow it in the address bar, or type your answers instead.");
+      setError("Microphone access was blocked. Allow it in the address bar, then turn the microphone on.");
       return false;
     }
   }
@@ -147,7 +147,7 @@ export function useVoice() {
     r.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         wantListening.current = false;
-        setError("Speech recognition isn't allowed here. You can type your answer instead.");
+        setError("Speech recognition isn't allowed here. Use Chrome or Edge on a computer.");
       }
     };
     // Chrome ends recognition after a pause; restart until the user presses stop.

@@ -53,7 +53,7 @@ export const VideoInput = z.object({
 });
 
 export const AnswerInput = z.object({
-  answer: z.string().trim().min(1, "Say or type an answer first").max(6000),
+  answer: z.string().trim().min(1, "Say an answer first").max(6000),
   durationSec: z.number().min(0).max(1800),
   voice: VoiceInput.optional(),
   video: VideoInput.optional(),

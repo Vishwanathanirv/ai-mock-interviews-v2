@@ -53,17 +53,6 @@ const Icon = {
       <path d="M16 10.5l5-3v9l-5-3M3 6h9.5A2.5 2.5 0 0 1 15 8.5V16M3 3l18 18M3 6v9.5A2.5 2.5 0 0 0 5.5 18H14" />
     </svg>
   ),
-  replay: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4" />
-    </svg>
-  ),
-  keyboard: (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-      <rect x="2.5" y="6" width="19" height="12" rx="2" />
-      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
-    </svg>
-  ),
   leave: (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
       <path d="M12 9c-3.3 0-6.4.9-8.9 2.6-.6.4-.8 1.2-.5 1.8l1.2 2.2c.3.6 1 .8 1.6.6l2.8-1c.5-.2.8-.7.8-1.2v-1.9c1-.3 2-.4 3-.4s2 .1 3 .4V14c0 .5.3 1 .8 1.2l2.8 1c.6.2 1.3 0 1.6-.6l1.2-2.2c.3-.6.1-1.4-.5-1.8C18.4 9.9 15.3 9 12 9z" />
@@ -93,12 +82,9 @@ export function Room({ id, title, provider, total, answered, question: initial }
   const [question, setQuestion] = useState(initial);
   const [count, setCount] = useState(answered);
   const [phase, setPhase] = useState<Phase>("intro");
-  const [typing, setTyping] = useState(false);
-  const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [callSec, setCallSec] = useState(0);
   const [feedback, setFeedback] = useState<AnswerEvaluation | null>(null);
-  const [voiceOn, setVoiceOn] = useState(true);
   const [caption, setCaption] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
@@ -110,14 +96,15 @@ export function Room({ id, title, provider, total, answered, question: initial }
   transcript.current = `${voice.finalText} ${voice.interim}`.trim();
 
   const sttOk = voice.supported?.stt ?? false;
-  const useTyping = typing || (voice.supported !== null && !sttOk);
+  // Voice only, like a real interview: browsers without speech recognition can't join.
+  const noVoice = voice.supported !== null && !sttOk;
 
   // Answer timer, and the call clock.
   useEffect(() => {
-    if (phase !== "listening" && !(phase === "ready" && useTyping)) return;
+    if (phase !== "listening") return;
     const t = setInterval(() => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)), 250);
     return () => clearInterval(t);
-  }, [phase, useTyping]);
+  }, [phase]);
   useEffect(() => {
     if (phase === "intro") return;
     const t = setInterval(() => setCallSec(Math.round((Date.now() - callStart.current) / 1000)), 1000);
@@ -126,7 +113,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
 
   // Fetch the opening question's voice early so the first line starts without a gap.
   useEffect(() => {
-    if (voiceOn) voice.prefetch(initial.text);
+    voice.prefetch(initial.text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -134,32 +121,22 @@ export function Room({ id, title, provider, total, answered, question: initial }
     async (text: string) => {
       if (!text) return;
       setCaption(text);
-      if (voiceOn && voice.supported?.tts) await voice.speak(text);
+      if (voice.supported?.tts) await voice.speak(text);
     },
-    [voice, voiceOn],
+    [voice],
   );
 
-  // The current input mode, readable from callbacks created on earlier renders.
-  const typingNow = useRef(useTyping);
-  typingNow.current = useTyping;
-
-  /** Opens the microphone for the candidate's turn (or the text box when typing). */
-  const listen = useCallback(async (mode?: "voice" | "typing") => {
+  /** Opens the microphone for the candidate's turn. If it can't open, the call pauses until it can. */
+  const listen = useCallback(async () => {
     voice.silence();
     startedAt.current = Date.now();
     nudged.current = false;
     turnBusy.current = false;
     setElapsed(0);
-    setDraft("");
-    if ((mode ?? (typingNow.current ? "typing" : "voice")) === "typing") {
-      setPhase("ready");
-      return;
-    }
     if (await voice.start()) {
       setPhase("listening");
       camera.startAnalysis();
     } else {
-      setTyping(true);
       setPhase("ready");
     }
   }, [voice, camera]);
@@ -199,7 +176,6 @@ export function Room({ id, title, provider, total, answered, question: initial }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Could not submit your answer.");
-        setDraft(answer);
         setPhase("ready");
         return;
       }
@@ -207,7 +183,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
       const next = data.next as AskedQuestion | null;
       setCount((c) => c + 1);
       setFeedback(evaluation);
-      if (next && voiceOn) voice.prefetch(next.text);
+      if (next) voice.prefetch(next.text);
       setPhase("reacting");
       await say(evaluation.reaction ?? acknowledge(evaluation.score, count));
       if (next) {
@@ -221,7 +197,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
       router.push(`/report/${id}`);
       router.refresh();
     },
-    [id, voiceOn, voice, say, ask, camera, router, count],
+    [id, voice, say, ask, camera, router, count],
   );
 
   /** Ends the candidate's spoken turn and submits it. */
@@ -264,25 +240,6 @@ export function Room({ id, title, provider, total, answered, question: initial }
     }, 250);
     return () => clearInterval(iv);
   }, [phase, voice, camera, finishTurn, say, listen, question.text]);
-
-  async function submitTyped() {
-    const answer = draft.trim();
-    if (!answer) {
-      setError("Say or type an answer first.");
-      return;
-    }
-    await send(answer, 0); // typed answers have no speaking pace
-  }
-
-  function switchInput() {
-    if (phase === "listening") {
-      voice.stop();
-      camera.stopAnalysis();
-    }
-    const nowTyping = !useTyping;
-    setTyping(nowTyping);
-    void listen(nowTyping ? "typing" : "voice");
-  }
 
   async function endEarly() {
     turnBusy.current = true;
@@ -336,19 +293,16 @@ export function Room({ id, title, provider, total, answered, question: initial }
             A live conversation with {INTERVIEWER}: she asks, you just talk, and when you pause she takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
           </p>
           <ul className="mt-4 space-y-1.5 text-sm text-muted">
-            <li>• No buttons to press: stop talking for a couple of seconds and she&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner, or &ldquo;can you repeat the question?&rdquo;</li>
+            <li>• Voice only, like the real thing. No typing, no buttons, and one take per answer: once you stop talking, it counts.</li>
+            <li>• Stop talking for a couple of seconds and she&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner. Didn&apos;t catch the question? Ask her to repeat it, out loud.</li>
             <li>• Expect honest feedback. She will tell you when an answer wouldn&apos;t pass a real interview.</li>
             <li>• Turn your camera on for feedback on eye contact, expression and posture.</li>
             <li>• Video is analysed on this device and never uploaded or saved.</li>
           </ul>
           {camera.error && <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{camera.error}</p>}
-          {voice.supported && !sttOk && <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">Voice answers need Chrome or Edge. You can type your answers here instead.</p>}
-          <label className="mt-5 flex w-fit cursor-pointer items-center gap-2 text-sm text-muted">
-            <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} className="accent-[var(--accent)]" />
-            Read questions aloud
-          </label>
+          {noVoice && <p className="mt-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">This interview is voice only, and this browser can&apos;t listen. Open it in Chrome or Edge on a computer.</p>}
           <p className="mt-3 text-xs text-faint">{provider === "ai" ? "Graded by Gemini, with measured delivery metrics." : "Graded with transparent rule-based scoring."}</p>
-          <button className="btn btn-accent mt-5" onClick={join}>
+          <button className="btn btn-accent mt-5" onClick={join} disabled={noVoice}>
             Join interview
           </button>
         </div>
@@ -359,7 +313,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
   // ---------- the call ----------
   const yourCaption = listening ? transcript.current : "";
   const status =
-    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? "Your turn: just talk" : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : useTyping ? "Your turn: type your answer" : "Paused";
+    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? "Your turn: just talk" : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : "Microphone is off";
   return (
     <div className="mx-auto max-w-6xl">
       <div className="overflow-hidden rounded-2xl bg-[#0f1115] text-white">
@@ -427,53 +381,29 @@ export function Room({ id, title, provider, total, answered, question: initial }
 
         {/* controls */}
         <div className="flex flex-wrap items-center justify-center gap-3 border-t border-white/10 px-4 py-3">
-          {!useTyping && (listening || phase === "ready") && (
-            <CallButton label={listening ? "I'm done" : "Answer"} onClick={listening ? () => void finishTurn() : () => void listen()} active={listening} wide>
+          {listening && (
+            <span className="flex h-12 items-center gap-2 rounded-full bg-accent px-5 text-sm font-medium text-[#0f1115]" aria-label="Microphone is on">
+              {Icon.mic}
+              <span className="tabular-nums">{mm(elapsed)}</span>
+            </span>
+          )}
+          {phase === "ready" && (
+            <CallButton label="Turn microphone on" onClick={() => void listen()} wide>
               <span className="flex items-center gap-2 text-sm font-medium">
                 {Icon.mic}
-                {listening ? `I'm done · ${mm(elapsed)}` : "Answer"}
+                Turn microphone on
               </span>
             </CallButton>
           )}
           <CallButton label={camera.on ? "Turn camera off" : "Turn camera on"} onClick={() => (camera.on ? camera.stop() : void camera.start())} active={camera.on}>
             {camera.on ? Icon.cam : Icon.camOff}
           </CallButton>
-          <CallButton label="Repeat question" onClick={() => void say(question.text)} disabled={phase !== "ready"}>
-            {Icon.replay}
-          </CallButton>
-          {sttOk && (
-            <CallButton label={useTyping ? "Use voice instead" : "Type instead"} onClick={switchInput} active={useTyping} disabled={phase === "submitting" || phase === "reacting" || phase === "asking"}>
-              {Icon.keyboard}
-            </CallButton>
-          )}
           <CallButton label="Leave interview" onClick={endEarly} danger disabled={phase === "finishing"} wide>
             <span className="flex items-center gap-2 text-sm font-medium">{Icon.leave} Leave</span>
           </CallButton>
         </div>
       </div>
 
-      {useTyping && (phase === "ready" || phase === "submitting" || phase === "asking") && (
-        <section className="card mt-4 p-5">
-          <div className="flex items-center justify-between text-sm text-muted">
-            <span>Type your answer as you would say it</span>
-            <span className="font-mono tabular-nums">{mm(elapsed)}</span>
-          </div>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={6}
-            maxLength={6000}
-            className="input mt-3 h-auto resize-y py-3 leading-relaxed"
-            aria-label="Your answer"
-            disabled={phase !== "ready"}
-          />
-          <div className="mt-4 flex justify-end">
-            <button className="btn btn-primary" onClick={submitTyped} disabled={phase !== "ready"}>
-              {phase === "submitting" ? "Grading…" : "Submit answer"}
-            </button>
-          </div>
-        </section>
-      )}
       {(error || voice.error || camera.error) && (
         <p role="alert" className="mt-4 rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad">
           {error ?? voice.error ?? camera.error}

@@ -68,7 +68,7 @@ export default function Home() {
             <p className="max-w-[30rem] font-display text-2xl font-semibold leading-snug tracking-[-0.02em]">Ten minutes, out loud, with someone who won&rsquo;t go easy on you.</p>
             <GuestButton>Start an interview</GuestButton>
           </div>
-          <p className="mt-6 text-sm text-faint">Works best in Chrome or Edge for voice. Typing works everywhere.</p>
+          <p className="mt-6 text-sm text-faint">Voice only, like a real interview. Use Chrome or Edge on a computer.</p>
         </section>
       </main>
     </div>
