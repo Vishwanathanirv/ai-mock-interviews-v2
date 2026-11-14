@@ -1,92 +1,76 @@
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 import { GuestButton } from "@/components/GuestButton";
-import { Bar, ScoreRing } from "@/components/ScoreRing";
+import { HonestDemo } from "@/components/home/HonestDemo";
+import { SkillDemo } from "@/components/home/SkillDemo";
+import { TurnDemo } from "@/components/home/TurnDemo";
+import { VoiceStrip } from "@/components/home/VoiceStrip";
 
-const steps = [
-  { n: "01", t: "Pick the role", d: "Six tracks from frontend to security, four seniority levels, technical, behavioural or mixed." },
-  { n: "02", t: "Answer out loud", d: "The interviewer speaks each question. You answer by voice, with a live transcript, or type if you prefer." },
-  { n: "03", t: "Get a real debrief", d: "Scores for content, depth, structure and delivery, with what you covered, what you missed and what to study next." },
-];
-
-const features = [
-  { t: "Adaptive questioning", d: "Strong answers raise the difficulty. Gaps get a follow-up, just like a real interviewer would probe." },
-  { t: "Measured delivery", d: "Speaking pace, filler words and hedging are measured from your answer, not guessed." },
-  { t: "STAR coaching", d: "Behavioural answers are checked for situation, task, action and result, with the missing parts named." },
-  { t: "Works without keys", d: "Runs fully offline with transparent rule-based scoring. Add a Gemini key for AI grading and follow-ups." },
-  { t: "Progress over time", d: "Every session is saved, so you can see your scores climb and revisit any answer." },
-  { t: "Private by design", d: "Hashed passwords, signed http-only sessions and rate limits. Audio never leaves your browser." },
+/**
+ * The home page is the product's own instruments, running live: the pitch tracker, the
+ * turn-taking rule, the skill estimate and the red-flag check are the same code that runs
+ * during an interview, not illustrations of it.
+ */
+const ROWS = [
+  {
+    title: "She waits until you're actually done.",
+    body: "There's no answer button to press. Maya listens for silence, and how long she waits depends on what you've said: a short answer gets 3 seconds in case you're still thinking, a long one gets less. Say “that's it” and she replies right away. Ask her to repeat and she will.",
+    demo: <TurnDemo />,
+  },
+  {
+    title: "One good answer doesn't prove you know it.",
+    body: "Each topic keeps a running estimate of your skill with an honest range around it. Lucky once? The range stays wide. Consistent? It tightens. A topic only counts as strong when even the low end of the range clears the line, and weak topics come back sooner.",
+    demo: <SkillDemo />,
+  },
+  {
+    title: "She tells you what a real interviewer would think.",
+    body: "Before grading what you said, Maya checks how you said it. Lying in bed, joking around, or giving up gets called out first, because in a real interview that's what ends it.",
+    demo: <HonestDemo />,
+  },
 ];
 
 export default function Home() {
   return (
-    <>
+    <div className="graph-paper min-h-screen [--accent-ink:var(--paper)] [--accent:var(--pen)] [--bg:var(--paper)] [--ring:color-mix(in_oklab,var(--pen)_40%,transparent)]">
       <AppHeader />
       <main>
-        <section className="mx-auto grid max-w-6xl items-center gap-14 px-4 pb-20 pt-14 sm:px-6 md:grid-cols-[1.15fr_0.85fr] md:pt-24">
-          <div className="animate-rise">
-            <p className="eyebrow">AI mock interviews · voice first</p>
-            <h1 className="mt-5 font-display text-[clamp(2.6rem,6vw,4.4rem)] font-semibold leading-[1.02] tracking-[-0.035em]">
-              Practise the interview <span className="text-accent">out loud</span>, before it counts.
-            </h1>
-            <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-muted">
-              An interviewer that listens, follows up on what you missed, and tells you exactly how to sound sharper next time.
+        <section className="mx-auto max-w-6xl px-4 pb-16 pt-12 sm:px-6 md:pt-20">
+          <h1 className="max-w-[16ch] font-display text-[clamp(2.5rem,6.4vw,4.75rem)] font-semibold leading-[1] tracking-[-0.035em] text-pen">Hear how you sound before they do.</h1>
+          <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+            <p className="max-w-[36rem] text-lg leading-relaxed text-muted">
+              Rehearse is a mock interviewer that talks with you, waits when you pause, and tells you honestly how it went. The line below is a voice drawn by the same pitch tracker that measures your answers.
             </p>
-            <div className="mt-9 flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <GuestButton />
               <Link href="/signup" className="btn btn-ghost">
                 Create a free account
               </Link>
             </div>
-            <p className="mt-4 text-sm text-faint">Best in Chrome or Edge for voice. Typing works everywhere.</p>
           </div>
 
-          <div className="card animate-rise p-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.35)] [animation-delay:120ms]" aria-label="Example report">
-            <div className="flex items-center justify-between">
-              <span className="eyebrow">Sample debrief</span>
-              <span className="rounded-full bg-good-soft px-2.5 py-1 text-xs font-medium text-good">Promising</span>
-            </div>
-            <div className="mt-5 flex items-center gap-6">
-              <ScoreRing score={72} size={112} stroke={9} />
-              <div className="flex-1 space-y-3">
-                <Bar label="content" value={78} />
-                <Bar label="depth" value={64} />
-                <Bar label="structure" value={81} />
-                <Bar label="delivery" value={66} />
-              </div>
-            </div>
-            <div className="mt-6 rounded-xl bg-surface-2 p-4 text-sm leading-relaxed">
-              <p className="font-medium">Next time</p>
-              <p className="mt-1 text-muted">Bring in idempotency keys when you talk about webhooks, and cut &ldquo;basically&rdquo;: you said it 6 times.</p>
-            </div>
+          <div className="mt-12">
+            <VoiceStrip />
           </div>
         </section>
 
-        <section className="border-y border-line bg-surface/60">
-          <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-6 md:grid-cols-3">
-            {steps.map((s) => (
-              <div key={s.n}>
-                <div className="font-mono text-xs text-faint">{s.n}</div>
-                <h2 className="mt-3 font-display text-xl font-semibold tracking-tight">{s.t}</h2>
-                <p className="mt-2 leading-relaxed text-muted">{s.d}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+        {ROWS.map((r) => (
+          <section key={r.title} className="mx-auto grid max-w-6xl items-start gap-8 px-4 py-14 sm:px-6 md:grid-cols-[0.8fr_1fr] md:gap-14">
+            <div className="md:pt-4">
+              <h2 className="font-display text-[clamp(1.6rem,3vw,2.2rem)] font-semibold leading-[1.1] tracking-[-0.02em]">{r.title}</h2>
+              <p className="mt-4 max-w-[30rem] leading-relaxed text-muted">{r.body}</p>
+            </div>
+            {r.demo}
+          </section>
+        ))}
 
-        <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-          <p className="eyebrow">What makes it different</p>
-          <h2 className="mt-3 max-w-xl font-display text-3xl font-semibold tracking-tight">Feedback you can act on, not a vague grade.</h2>
-          <div className="mt-10 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((f) => (
-              <div key={f.t} className="bg-surface p-6">
-                <h3 className="font-medium">{f.t}</h3>
-                <p className="mt-2 text-[0.95rem] leading-relaxed text-muted">{f.d}</p>
-              </div>
-            ))}
+        <section className="mx-auto max-w-6xl px-4 pb-24 pt-10 sm:px-6">
+          <div className="flex flex-col gap-6 border-t-[1.5px] border-pen/70 pt-10 md:flex-row md:items-center md:justify-between">
+            <p className="max-w-[30rem] font-display text-2xl font-semibold leading-snug tracking-[-0.02em]">Ten minutes, out loud, with someone who won&rsquo;t go easy on you.</p>
+            <GuestButton>Start an interview</GuestButton>
           </div>
+          <p className="mt-6 text-sm text-faint">Works best in Chrome or Edge for voice. Typing works everywhere.</p>
         </section>
       </main>
-    </>
+    </div>
   );
 }

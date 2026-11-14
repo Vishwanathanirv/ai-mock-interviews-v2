@@ -141,6 +141,13 @@ export class ProsodyTracker {
     return out;
   }
 
+  /** Frame-by-frame view for drawing: time, pitch when voiced, and whether the frame counts as speech. */
+  trace(): { t: number; f0: number | null; speech: boolean }[] {
+    if (!this.frames.length) return [];
+    const act = this.activity();
+    return this.frames.map((f, i) => ({ t: f.t, f0: f.f0, speech: act[i] }));
+  }
+
   summary(): VoiceMetrics {
     const hop = this.hop / this.sampleRate;
     const durationSec = +(this.frames.length * hop).toFixed(1);

@@ -18,6 +18,13 @@
   --good: #2f6b45;
   --good-soft: #dcecdf;
   --ring: rgba(47, 93, 80, 0.35);
+  /* Home page: graph paper by day, blueprint by night. */
+  --paper: #f2f5f7;
+  --grid: #dde6ee;
+  --grid-major: #c3d3e1;
+  --pen: #1f3f8c;
+  --pen-soft: #dfe6f5;
+  --pencil: #c2412b;
   color-scheme: light;
 }
 
@@ -40,11 +47,22 @@
     --good: #8fd0a3;
     --good-soft: #182a1f;
     --ring: rgba(127, 191, 168, 0.4);
+    --paper: #0f2337;
+    --grid: #17304a;
+    --grid-major: #224365;
+    --pen: #e4eefa;
+    --pen-soft: #1b3958;
+    --pencil: #ff8f73;
     color-scheme: dark;
   }
 }
 
 @theme inline {
+  --color-paper: var(--paper);
+  --color-grid: var(--grid);
+  --color-pen: var(--pen);
+  --color-pen-soft: var(--pen-soft);
+  --color-pencil: var(--pencil);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -181,4 +199,18 @@ body {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.graph-paper {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+  background-position: -1px -1px;
+}
+.pen-range {
+  accent-color: var(--pen);
 }

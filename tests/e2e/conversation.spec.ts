@@ -69,7 +69,6 @@ test("the interviewer listens, reacts honestly and moves on without any buttons"
   await expect(page.getByText("Your turn: just talk")).toBeVisible();
   await expect(page.getByText(/lying down/)).toBeVisible();
   await expect(page.getByText(/Red flag: unprofessional setting/)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/Maya: .*(lying down|setting|game)/)).toBeVisible();
 
   // Turn 2: asking for a repeat repeats the question instead of grading the request.
   await expect(page.getByText(/Maya: Sure\./)).toBeVisible({ timeout: 15_000 });
@@ -78,4 +77,6 @@ test("the interviewer listens, reacts honestly and moves on without any buttons"
   await page.waitForURL(/\/report\//, { timeout: 60_000 });
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText(/Red flag/).first()).toBeVisible();
+  // Her spoken reaction is kept on the report, so it can be checked without racing the caption.
+  await expect(page.getByText(/(lying down|setting).*(interview|job)/).first()).toBeVisible();
 });
