@@ -10,6 +10,8 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 
 ## Highlights
 
+- **Runs like a real interview, start to finish.** Maya introduces herself and her team, says how long it will take, asks her questions with follow-ups, and ends with "Do you have any questions for me?", answering yours in character. During the call she keeps her verdict to herself, like a real interviewer: no scores on screen, just natural acknowledgements, though she will stop you on the spot over conduct (lying in bed, joking). Say "let me think" and she waits; run past three minutes and she politely cuts in.
+- **A hiring panel's decision, not just a score.** The report opens with the call a real panel would make (Strong hire, Hire, Lean hire, Lean no hire or No hire) against the bar for your level, with the reasons. Conduct problems or skipped questions cap the call however good the rest was. The AI grades against a level-specific rubric with fixed score anchors, so marks are not inflated, and your closing question is judged too (asking nothing, or leading with salary, is called out).
 - **A home page made of the real instruments.** No marketing cards: the landing page runs the product's own code live. A voice is drawn on graph paper by the same YIN pitch tracker that measures answers (press one button to see your own), with every pause over 0.6 s bracketed in red pencil. Below it, a slider shows exactly when the turn-taking rule (`decideTurn`) lets the interviewer reply, buttons feed answers into the Bayesian skill estimate so you can watch its range tighten, and a text box runs the red-flag check as you type. Graph paper by day, blueprint by night.
 - **A real conversation, hands-free.** No answer or send buttons: the interviewer asks, the microphone opens, and an end-of-turn detector (silence measured from the audio and from new words, with more patience for short answers) decides when you have finished. "That's it" ends a turn early; "can you repeat the question?" gets the question again instead of a grade; a long silence gets one gentle nudge. She reacts to what you actually said, then moves on or digs in.
 - **Brutally honest, like a real hiring manager.** Gemini plays a senior interviewer who says when an answer would not pass, quotes what you said, and flags red flags (an unprofessional setting, a non-answer, a dismissive tone). Without AI, a rules engine catches the same red flags and caps the score. Uses current Gemini models with automatic fallback (`gemini-3.8-flash`, then `gemini-3.5-flash-lite`), because new API keys can no longer use 2.5 Flash.
@@ -30,7 +32,7 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 - **Two grading engines behind one interface.**
   - *Rules*: transparent, deterministic scoring that works with zero configuration.
   - *AI (Gemini)*: grades content, depth and structure with a JSON schema and validates the response with Zod. Delivery stays measured. If the AI call fails or times out, it falls back to the rules engine, so a session never breaks.
-- **6 roles × 4 levels × 3 interview types**, with 36 technical and 8 behavioural questions, each with key concepts, synonyms and a follow-up.
+- **13 roles × 4 levels × 3 interview types**: frontend, backend, full-stack, Java, mobile, QA/test automation, DevOps/Linux, cloud/SRE, network, security, data/ML, data analyst and product manager. 78 technical and 11 behavioural questions, each with key concepts, synonyms and a follow-up.
 - **Progress tracking.** A dashboard with the skill map, history, average and best scores, and a trend chart. Every answer can be revisited in its report, and reports can be saved as PDF.
 - **Secure by default.**
   - scrypt password hashing and signed http-only session cookies (HS256 JWT)
@@ -125,7 +127,7 @@ Voice answers work in Chrome and Edge. Other browsers use the typing mode automa
 
 ```bash
 npm run lint && npm run typecheck
-npm test            # 64 unit tests (Vitest), including the DSP, turn-taking and the mastery model
+npm test            # 76 unit tests (Vitest), including the DSP, turn-taking and the mastery model
 npm run build
 npm run test:e2e    # 6 end-to-end tests (Playwright): a full hands-free interview, and generated speech through a fake microphone
 ```
