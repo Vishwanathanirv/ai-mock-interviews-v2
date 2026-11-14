@@ -23,7 +23,7 @@ test("guest can complete a full interview and see a report", async ({ page }) =>
   await expect(page).toHaveURL(/\/interview\/[0-9a-f-]{36}$/);
 
   await page.getByLabel("Read questions aloud").uncheck();
-  await page.getByRole("button", { name: "Begin interview" }).click();
+  await page.getByRole("button", { name: "Join interview" }).click();
 
   for (let i = 0; i < 3; i++) {
     await answerTyped(page, GOOD);

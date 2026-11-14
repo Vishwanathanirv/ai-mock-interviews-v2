@@ -10,6 +10,9 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 
 ## Highlights
 
+- **Feels like a real video call.** A Meet-style room with a lobby (camera preview), an interviewer who talks on screen (her mouth follows the loudness of her voice), your camera tile, live captions, a call clock, and mic, camera, repeat, type and leave controls. The interviewer acknowledges each answer ("Okay, thanks.") and leads into follow-ups the way a person would.
+- **A natural interviewer voice.** With a Gemini key, questions are spoken by Gemini text-to-speech (`gemini-3.8-flash-tts`, voice "Achird"), fetched ahead of time so there is no gap, and cached. Without a key, or if the call fails, the browser's best voice takes over automatically.
+- **Video analysis on your device.** With the camera on, face tracking runs in the browser (Human / TensorFlow.js on WebGL, models served by this site, nothing uploaded): eye contact from head pose and gaze, look-aways, smiling, head movement, framing and lighting, all turned into feedback and a report section. Checked in Chromium with a fake webcam showing a public-domain portrait: the face was found whenever it was in view and never in empty frames, read as looking at the camera, and its smile detected.
 - **Voice first, no paid voice API.** Speech recognition and the interviewer's voice run in the browser (Web Speech API). Audio never leaves your device; only the final text is sent. Typing works everywhere as a fallback.
 - **Adaptive interviewer.** Difficulty moves up after strong answers and down after weak ones. If you miss a key concept, the interviewer probes it with a follow-up, as a real one would.
 - **Measured, not guessed, delivery.** Speaking pace, filler words ("um", "basically", "like" as a filler but not as a verb) and hedging are computed from your answer.
