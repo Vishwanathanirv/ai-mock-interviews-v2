@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { lookingAtCamera, summarizeVideo, type VideoFrame, type VideoMetrics } from "@/lib/video/analysis";
+import { liveIssue, lookingAtCamera, summarizeVideo, type IssueClock, type LiveIssue, type VideoFrame, type VideoMetrics } from "@/lib/video/analysis";
+
+export type { LiveIssue };
 import type { FaceTracker } from "@/lib/video/tracker";
 
 /**
@@ -12,7 +14,9 @@ export function useCamera() {
   const [on, setOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tracking, setTracking] = useState<"off" | "loading" | "ready" | "failed">("off");
-  const [live, setLive] = useState<{ face: boolean; contact: boolean } | null>(null);
+  const [live, setLive] = useState<{ face: boolean; contact: boolean; issue: LiveIssue | null } | null>(null);
+  /** When each problem started, while it lasts. */
+  const since = useRef<IssueClock>({ tilted: null, gone: null, away: null });
   const stream = useRef<MediaStream | null>(null);
   const video = useRef<HTMLVideoElement | null>(null);
   const tracker = useRef<FaceTracker | null>(null);
@@ -79,6 +83,7 @@ export function useCamera() {
   const startAnalysis = useCallback(() => {
     if (!on || analysing.current) return;
     frames.current = [];
+    since.current = { tilted: null, gone: null, away: null };
     analysing.current = true;
     started.current = performance.now();
     const loop = async () => {
@@ -90,7 +95,8 @@ export function useCamera() {
             const f = await tracker.current.sample(v, (t0 - started.current) / 1000);
             if (!analysing.current) break;
             frames.current.push(f);
-            setLive({ face: f.face !== null, contact: f.face !== null && lookingAtCamera(f.face) });
+            const issue = liveIssue(since.current, f.face, f.t);
+            setLive({ face: f.face !== null, contact: f.face !== null && lookingAtCamera(f.face), issue });
           } catch {
             /* skip a bad frame */
           }

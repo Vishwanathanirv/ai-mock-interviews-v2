@@ -68,6 +68,13 @@ test("protected pages redirect to sign in, and accounts work end to end", async 
   await page.getByLabel("Password").fill("a-long-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
+
+  // Starting from the home page while signed in keeps the account (it used to swap in a guest).
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start an interview" }).first().click();
+  await expect(page).toHaveURL(/\/interview\/new/);
+  await page.goto("/dashboard");
+  await expect(page.getByText("Hi Test")).toBeVisible();
 });
 
 test("users cannot read each other's interviews", async ({ browser, request }) => {

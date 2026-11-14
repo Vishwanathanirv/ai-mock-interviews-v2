@@ -6,7 +6,7 @@ import type { AnswerEvaluation, AskedQuestion } from "@/lib/interview/types";
 import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { Interviewer } from "./Interviewer";
-import { useCamera } from "./useCamera";
+import { useCamera, type LiveIssue } from "./useCamera";
 import { decideTurn } from "@/lib/voice/turn";
 import { useVoice } from "./useVoice";
 
@@ -15,7 +15,7 @@ type Phase = "intro" | "asking" | "ready" | "listening" | "submitting" | "reacti
 type Props = {
   id: string;
   title: string;
-  /** How Maya introduces her team ("the platform team"). */
+  /** How Arjun introduces his team ("the platform team"). */
   team: string;
   provider: string;
   total: number;
@@ -23,13 +23,28 @@ type Props = {
   question: AskedQuestion;
 };
 
-const INTERVIEWER = "Maya";
+export const INTERVIEWER = "Arjun";
 
-/** What a person would say after hearing an answer, before moving on. Never a grade. */
-function acknowledge(seed: number) {
-  const lines = ["Okay, thanks.", "Alright, got it.", "Thanks for that.", "Right, okay."];
-  return lines[seed % lines.length];
-}
+/** Said the moment an answer ends, while it is being graded, so there is never dead air. */
+const ACKS = ["Okay.", "Mm-hm, okay.", "Alright.", "Got it.", "Okay, thank you."];
+const NOT_CAUGHT = "Sorry, I didn't catch that. Could you say it again?";
+const CAMERA_OFF = "I can't see you at the moment. If you can, please turn your camera on, so it feels like the real thing.";
+/** What he says, mid-answer, when the camera shows a problem a real interviewer would mention. */
+const ALERTS: Record<LiveIssue, string> = {
+  tilted: "Sorry to interrupt. It looks like you're lying down. Could you sit up and face the camera?",
+  gone: "Sorry, I can't see you right now. Could you come back into the frame?",
+  away: "Quick note: try to look at the camera while you answer.",
+};
+const ALERT_LABEL: Record<LiveIssue, string> = { tilted: "Sit up and face the camera", gone: "You're out of the frame", away: "Look at the camera" };
+
+const opening = (team: string, total: number) =>
+  `Hi, I'm ${INTERVIEWER}. I lead ${team} here. Thanks for making the time today. We'll go through about ${total} questions, so roughly ${Math.max(10, total * 3)} minutes. Take your time and think out loud. Let's start.`;
+
+/** Drops a leading "Okay." from his reaction when he has just said one. */
+const afterAck = (line: string) => {
+  const rest = line.replace(/^(okay|alright|right|got it|mm-hm)[,.!]?\s*/i, "");
+  return rest ? rest[0].toUpperCase() + rest.slice(1) : "";
+};
 
 const CLOSING_ASK = "That's all my questions from my side. Before we wrap up, do you have any questions for me?";
 const CUT_IN = "Sorry to cut in. In the interest of time, let me stop you there.";
@@ -95,8 +110,11 @@ export function Room({ id, title, team, provider, total, answered, question: ini
   const asked = useRef(0);
   const nudged = useRef(false);
   const turnBusy = useRef(false);
-  /** True once the questions are done and she has asked "any questions for me?". */
+  /** True once the questions are done and he has asked "any questions for me?". */
   const closing = useRef(false);
+  /** Camera problems already mentioned out loud, and whether he is mid-interjection. */
+  const alerted = useRef(new Set<LiveIssue>());
+  const alerting = useRef(false);
   const transcript = useRef("");
   transcript.current = `${voice.finalText} ${voice.interim}`.trim();
 
@@ -116,9 +134,9 @@ export function Room({ id, title, team, provider, total, answered, question: ini
     return () => clearInterval(t);
   }, [phase]);
 
-  // Fetch the opening question's voice early so the first line starts without a gap.
+  // Fetch his fixed lines early, so he starts talking the moment you join and never pauses to load.
   useEffect(() => {
-    voice.prefetch(initial.text);
+    for (const line of [answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.", initial.text, ...ACKS, CLOSING_ASK, CAMERA_OFF, "Next question.", "Let's move on."]) voice.prefetch(line);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,6 +155,8 @@ export function Room({ id, title, team, provider, total, answered, question: ini
     startedAt.current = Date.now();
     nudged.current = false;
     turnBusy.current = false;
+    alerted.current.delete("tilted");
+    alerted.current.delete("gone");
     setElapsed(0);
     if (await voice.start()) {
       setPhase("listening");
@@ -151,18 +171,14 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       setError(null);
       setPhase("asking");
       const n = asked.current++;
-      // The opening, like a real call: who she is, what to expect, then the first question.
-      const intro =
-        n === 0
-          ? answered === 0
-            ? `Hi, I'm ${INTERVIEWER}. I lead ${team} here. Thanks for making the time today. We'll go through about ${total} questions, so roughly ${Math.max(10, total * 3)} minutes. Take your time and think out loud. Let's start.`
-            : "Welcome back. Let's pick up where we left off."
-          : lead(q, n);
+      // The opening, like a real call: who he is, what to expect, then the first question.
+      const intro = n === 0 ? (answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.") : lead(q, n);
       if (intro) await say(intro);
+      if (n === 0 && !camera.on) await say(CAMERA_OFF);
       await say(q.text);
       await listen();
     },
-    [say, listen, answered, team, total],
+    [say, listen, answered, team, total, camera.on],
   );
 
   async function join() {
@@ -174,7 +190,8 @@ export function Room({ id, title, team, provider, total, answered, question: ini
   const send = useCallback(
     async (answer: string, durationSec: number, measured: { voice?: VoiceMetrics | null; video?: VideoMetrics | null } = {}) => {
       setPhase("submitting");
-      setCaption(null);
+      // Like a person, he acknowledges straight away while he thinks about the answer.
+      const ack = say(ACKS[count % ACKS.length]);
       const res = await fetch(`/api/interviews/${id}/answer`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -186,6 +203,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
         }),
       });
       const data = await res.json().catch(() => ({}));
+      await ack;
       if (!res.ok) {
         setError(data.error ?? "Could not submit your answer.");
         setPhase("ready");
@@ -197,13 +215,16 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       if (next) voice.prefetch(next.text);
       else voice.prefetch(CLOSING_ASK);
       setPhase("reacting");
-      await say(evaluation.reaction ?? acknowledge(count));
+      // Neutral reactions ("Okay, thanks.") are already covered by the acknowledgement; anything
+      // with substance (conduct, a thin answer) is said out loud.
+      const reaction = afterAck(evaluation.reaction ?? "");
+      if (reaction && (evaluation.redFlags?.length || reaction.length > 24)) await say(reaction);
       if (next) {
         setQuestion(next);
         await ask(next);
         return;
       }
-      // The end of a real interview: her questions are done, now it's yours.
+      // The end of a real interview: his questions are done, now it's yours.
       closing.current = true;
       setPhase("asking");
       await say(CLOSING_ASK);
@@ -212,7 +233,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
     [id, voice, say, ask, listen, count],
   );
 
-  /** Her reply to the candidate's question, then goodbye, then the written feedback. */
+  /** His reply to the candidate's question, then goodbye, then the written feedback. */
   const closeOut = useCallback(
     async (asked: string) => {
       setPhase("finishing");
@@ -221,10 +242,11 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       const data = await res.json().catch(() => ({}));
       await say(res.ok && data.closing?.reply ? data.closing.reply : "Thanks again for your time today, it was good talking to you.");
       camera.stop();
+      voice.release();
       router.push(`/report/${id}`);
       router.refresh();
     },
-    [id, say, camera, router],
+    [id, say, camera, router, voice],
   );
 
   /** Ends the candidate's spoken turn and submits it. */
@@ -241,7 +263,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       }
       const answer = text.trim() || fallback || "";
       if (!answer) {
-        await say("Sorry, I didn't catch that. Could you say it again?");
+        await say(NOT_CAUGHT);
         await listen();
         return;
       }
@@ -250,11 +272,33 @@ export function Room({ id, title, team, provider, total, answered, question: ini
     [voice, camera, say, listen, send, closeOut],
   );
 
+  // The newest versions of everything the turn loop needs. The loop reads them through this ref
+  // so it is not torn down and restarted on every render: the microphone level re-renders the
+  // page many times a second, which would otherwise stop the loop from ever ticking.
+  const live = useRef({ voice, camera, finishTurn, say, listen, questionText: question.text });
+  live.current = { voice, camera, finishTurn, say, listen, questionText: question.text };
+
+  /** Mentions a camera problem out loud, once, the way an interviewer would, then keeps listening. */
+  const interject = (issue: LiveIssue) => {
+    const { voice, say } = live.current;
+    alerting.current = true;
+    alerted.current.add(issue);
+    void voice.hold(() => say(ALERTS[issue])).finally(() => {
+      alerting.current = false;
+    });
+  };
+
   // While the candidate talks, decide several times a second whether their turn is over.
   useEffect(() => {
     if (phase !== "listening") return;
     const iv = setInterval(() => {
-      if (turnBusy.current) return;
+      if (turnBusy.current || alerting.current) return;
+      const { voice, camera, finishTurn, say, listen, questionText } = live.current;
+      const issue = camera.live?.issue;
+      if (issue && !alerted.current.has(issue)) {
+        interject(issue);
+        return;
+      }
       // A short "No, thanks" is a complete reply to "any questions for me?".
       if (closing.current && transcript.current && voice.quietFor() >= 2500) {
         void finishTurn();
@@ -266,7 +310,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       else if (d === "give-up") void finishTurn(closing.current ? "" : "I don't have an answer for this one.");
       else if (d === "repeat" || d === "nudge") {
         turnBusy.current = true;
-        const line = d === "repeat" ? `Sure. ${closing.current ? "Do you have any questions for me?" : question.text}` : "Take your time. Whenever you're ready.";
+        const line = d === "repeat" ? `Sure. ${closing.current ? "Do you have any questions for me?" : questionText}` : "Take your time. Whenever you're ready.";
         voice.stop();
         camera.stopAnalysis();
         void (async () => {
@@ -277,12 +321,13 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       }
     }, 250);
     return () => clearInterval(iv);
-  }, [phase, voice, camera, finishTurn, say, listen, question.text]);
+  }, [phase]);
 
   async function endEarly() {
     turnBusy.current = true;
     voice.silence();
     if (voice.listening) voice.stop();
+    voice.release();
     camera.stop();
     if (count === 0) {
       router.push("/dashboard");
@@ -328,12 +373,12 @@ export function Room({ id, title, team, provider, total, answered, question: ini
           <p className="eyebrow">{title}</p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight">Ready to join?</h1>
           <p className="mt-2 text-muted">
-            A live conversation with {INTERVIEWER}: she asks, you just talk, and when you pause she takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
+            A live conversation with {INTERVIEWER}: he asks, you just talk, and when you pause he takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
           </p>
           <ul className="mt-4 space-y-1.5 text-sm text-muted">
-            <li>• Like the real thing: she introduces herself, asks her questions with follow-ups, then asks if you have any questions for her. Scores and feedback come only at the end.</li>
+            <li>• Like the real thing: he introduces himself, asks his questions with follow-ups, then asks if you have any questions for him. Scores and feedback come only at the end.</li>
             <li>• Voice only. No typing, no buttons, and one take per answer: once you stop talking, it counts.</li>
-            <li>• Stop talking for a couple of seconds and she&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner. Didn&apos;t catch the question? Ask her to repeat it, out loud.</li>
+            <li>• Stop talking for a couple of seconds and he&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner. Didn&apos;t catch the question? Ask him to repeat it, out loud.</li>
             <li>• Expect brutally honest feedback at the end, including whether a real panel would move you to the next round.</li>
             <li>• Turn your camera on for feedback on eye contact, expression and posture.</li>
             <li>• Video is analysed on this device and never uploaded or saved.</li>
@@ -352,7 +397,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
   // ---------- the call ----------
   const yourCaption = listening ? transcript.current : "";
   const status =
-    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? (closing.current ? "Your turn: ask her anything" : "Your turn: just talk") : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : "Microphone is off";
+    phase === "asking" ? `${INTERVIEWER} is speaking` : listening ? (closing.current ? "Your turn: ask him anything" : "Your turn: just talk") : phase === "submitting" ? `${INTERVIEWER} is thinking…` : phase === "reacting" ? `${INTERVIEWER} is responding` : phase === "finishing" ? "Wrapping up" : "Microphone is off";
   return (
     <div className="mx-auto max-w-6xl">
       <div className="overflow-hidden rounded-2xl bg-[#0f1115] text-white">
@@ -393,7 +438,12 @@ export function Room({ id, title, team, provider, total, answered, question: ini
               You
               {listening && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
             </span>
-            {camera.on && listening && camera.live && (
+            {camera.on && listening && camera.live?.issue && (
+              <span role="alert" className="absolute inset-x-0 top-0 bg-[#d97a1e] px-3 py-1.5 text-center text-sm font-medium text-[#1a1206]">
+                {ALERT_LABEL[camera.live.issue]}
+              </span>
+            )}
+            {camera.on && listening && camera.live && !camera.live.issue && (
               <span className={`absolute right-2 top-2 rounded-md px-2 py-1 text-xs ${camera.live.contact ? "bg-accent/85 text-[#0f1115]" : "bg-black/60 text-white/80"}`}>
                 {!camera.live.face ? "Face not in view" : camera.live.contact ? "Eye contact" : "Look at the camera"}
               </span>

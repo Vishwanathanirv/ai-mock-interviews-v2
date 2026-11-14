@@ -16,12 +16,12 @@ const SAID = [
 const MAX = 4000;
 
 const OUTCOME: Record<TurnDecision, string> = {
-  continue: "Maya keeps listening.",
-  end: "Maya takes it as your full answer and replies.",
-  repeat: "Maya repeats the question.",
-  nudge: "Maya checks in.",
-  "give-up": "Maya moves on.",
-  "cut-in": "Maya politely cuts in.",
+  continue: "Arjun keeps listening.",
+  end: "Arjun takes it as your full answer and replies.",
+  repeat: "Arjun repeats the question.",
+  nudge: "Arjun checks in.",
+  "give-up": "Arjun moves on.",
+  "cut-in": "Arjun politely cuts in.",
 };
 
 export function TurnDemo() {

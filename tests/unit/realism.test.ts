@@ -94,3 +94,45 @@ describe("closing questions", () => {
     expect(closingRules("How much is the salary for this role?").note).toMatch(/pay or time off/);
   });
 });
+
+import { liveIssue, summarizeVideo, videoFlags, type FaceSample, type IssueClock, type VideoFrame } from "@/lib/video/analysis";
+
+const face = (o: Partial<FaceSample> = {}): FaceSample => ({ yaw: 0, pitch: 0, roll: 0, gaze: 0.1, cx: 0.5, cy: 0.45, w: 0.25, area: 0.1, happy: 0.1, expression: "neutral", ...o });
+const frames = (n: number, f: (i: number) => FaceSample | null): VideoFrame[] => Array.from({ length: n }, (_, i) => ({ t: i * 0.2, face: f(i), brightness: 0.5 }));
+
+describe("camera, watched like a real interviewer would", () => {
+  it("notices lying down after a couple of seconds, not a quick stretch", () => {
+    const clock: IssueClock = { tilted: null, gone: null, away: null };
+    const lying = face({ roll: 1.4 });
+    expect(liveIssue(clock, lying, 0)).toBeNull();
+    expect(liveIssue(clock, lying, 1)).toBeNull();
+    expect(liveIssue(clock, face(), 1.2)).toBeNull(); // sat back up: the clock resets
+    expect(liveIssue(clock, lying, 1.4)).toBeNull();
+    expect(liveIssue(clock, lying, 3.5)).toBe("tilted");
+  });
+
+  it("notices leaving the frame and looking away for long stretches", () => {
+    const clock: IssueClock = { tilted: null, gone: null, away: null };
+    expect(liveIssue(clock, null, 0)).toBeNull();
+    expect(liveIssue(clock, null, 3.1)).toBe("gone");
+    const c2: IssueClock = { tilted: null, gone: null, away: null };
+    expect(liveIssue(c2, face({ yaw: 0.8 }), 0)).toBeNull();
+    expect(liveIssue(c2, face({ yaw: 0.8 }), 4)).toBeNull();
+    expect(liveIssue(c2, face({ yaw: 0.8 }), 5.2)).toBe("away");
+  });
+
+  it("turns lying down on camera into a red flag that caps the score and that he mentions", () => {
+    const m = summarizeVideo(frames(40, () => face({ roll: 1.3 })))!;
+    expect(m.tiltedPct).toBe(100);
+    expect(videoFlags(m).flags).toContain("not sitting upright");
+    const e = scoreAnswer(q, "I would add an index on the column used in the where clause and check the plan with explain, then measure the latency again.", 30, undefined, m);
+    expect(e.redFlags).toContain("not sitting upright");
+    expect(e.score).toBeLessThan(40);
+    expect(e.reaction).toMatch(/sit up/i);
+  });
+
+  it("does not flag someone sitting normally", () => {
+    const m = summarizeVideo(frames(40, () => face()))!;
+    expect(videoFlags(m).flags).toEqual([]);
+  });
+});

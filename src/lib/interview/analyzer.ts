@@ -1,4 +1,4 @@
-import { videoTips, type VideoMetrics } from "@/lib/video/analysis";
+import { videoFlags, videoTips, type VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import type { AnswerEvaluation, AskedQuestion, Concept, DeliveryMetrics, ScoreBreakdown } from "./types";
 
@@ -105,13 +105,17 @@ const pick = <T,>(xs: T[], key: string) => {
 
 /**
  * What the interviewer says right after an answer when grading without AI. In character, like a
- * real interviewer: she keeps her verdict to herself (that goes in the written feedback), but
- * she does address conduct on the spot and asks for more when an answer is too thin.
+ * real interviewer: he keeps his verdict to himself (that goes in the written feedback), but
+ * he does address conduct on the spot and asks for more when an answer is too thin.
  */
 export function rulesReaction(_q: AskedQuestion, e: Pick<AnswerEvaluation, "score" | "covered" | "missing" | "redFlags" | "metrics">, answer: string): string {
   if (e.redFlags?.includes("unprofessional setting")) return pick(["Before we go on, could you sit up and move somewhere quiet? I'd like to treat this like the real interview.", "Let's pause for a second. Please find a quiet spot and sit at a desk, the way you would for the real interview."], answer);
+  if (e.redFlags?.includes("not sitting upright")) return pick(["Before we go on, could you sit up and face the camera? I'd like to treat this like the real interview.", "Sorry, could you sit upright for me? It looks like you're lying down."], answer);
+  if (e.redFlags?.includes("out of the camera view")) return pick(["I lost you on camera for most of that. Please stay in the frame.", "I couldn't really see you there. Could you sit where the camera can see you?"], answer);
   if (e.redFlags?.includes("dismissive tone")) return pick(["Let's keep it professional, please.", "I'd ask you to take this seriously, the way you would with a real panel."], answer);
   if (e.redFlags?.includes("no real answer")) return pick(["That's okay. Let's keep going.", "Alright, we'll move on."], answer);
+  const cam = e.metrics.video;
+  if (cam && cam.faceVisiblePct >= 50 && cam.eyeContactPct < 25) return pick(["Okay. Try to look at the camera when you talk, it helps me follow you.", "Alright. One thing: try to look at me, at the camera, while you answer."], answer);
   if (e.metrics.words < 15) return pick(["Okay. I'd have liked a bit more detail there, but let's move on.", "Alright. That was quite brief."], answer);
   if (e.score >= 75) return pick(["Okay, thanks. That's clear.", "Got it, thank you.", "Right, that makes sense."], answer);
   if (e.score >= 50) return pick(["Okay, thanks.", "Alright.", "Mm-hm, okay."], answer);
@@ -166,9 +170,11 @@ export function scoreAnswer(question: AskedQuestion, answer: string, durationSec
   }
   if (metrics.words < 15) delivery = Math.min(delivery, 40);
 
-  const red = detectRedFlags(answer);
-  // A non-answer or an unprofessional setting caps the score, however many keywords slip in.
-  const capped = red.flags.includes("no real answer") || red.flags.includes("unprofessional setting");
+  const said = detectRedFlags(answer);
+  const seen = videoFlags(metrics.video);
+  const red = { flags: [...said.flags, ...seen.flags], advice: [...said.advice, ...seen.advice] };
+  // A non-answer or an unprofessional setting (said or seen) caps the score, however many keywords slip in.
+  const capped = red.flags.some((f) => f === "no real answer" || f === "unprofessional setting" || f === "not sitting upright");
   const breakdown: ScoreBreakdown = capped
     ? { content: Math.min(content, 15), depth: Math.min(depth, 20), structure: Math.min(structure, 20), delivery: Math.min(clamp(delivery), 40) }
     : { content, depth, structure, delivery: clamp(delivery) };

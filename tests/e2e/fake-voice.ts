@@ -41,12 +41,30 @@ export async function fakeVoice(page: Page, answers: string[]) {
     }
     (window as unknown as Record<string, unknown>).webkitSpeechRecognition = FakeRecognition;
     (window as unknown as Record<string, unknown>).SpeechRecognition = FakeRecognition;
-    // A silent microphone: the scripted words are the only "speech".
+    // A real-sounding room: steady fan-like hum plus noise whose loudness keeps changing, so the
+    // microphone level moves all the time the way it does on a real laptop.
     navigator.mediaDevices.getUserMedia = async () => {
       const ctx = new AudioContext();
-      return ctx.createMediaStreamDestination().stream;
+      const out = ctx.createMediaStreamDestination();
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.03 + Math.sin(i / 40) * 0.01;
+      const noise = ctx.createBufferSource();
+      noise.buffer = buf;
+      noise.loop = true;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.7;
+      const wobble = ctx.createOscillator();
+      wobble.frequency.value = 3;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.5;
+      wobble.connect(depth).connect(gain.gain);
+      noise.connect(gain).connect(out);
+      noise.start();
+      wobble.start();
+      return out.stream;
     };
-    // Her voice: finish each line almost at once, so tests don't wait for real speech.
+    // The interviewer's voice: finish each line almost at once, so tests don't wait for real speech.
     const said: string[] = ((window as unknown as { __said: string[] }).__said = []);
     window.speechSynthesis.speak = (u: SpeechSynthesisUtterance) => {
       said.push(u.text);

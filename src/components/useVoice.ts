@@ -20,6 +20,9 @@ type Recognition = {
   onend: (() => void) | null;
 };
 
+/** How long to wait for the natural voice before speaking with the browser's own voice. */
+const NATURAL_WAIT_MS = 4500;
+
 function getRecognitionCtor(): (new () => Recognition) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
@@ -45,9 +48,11 @@ export function useVoice() {
   const finalRef = useRef("");
   const interimRef = useRef("");
   const stream = useRef<MediaStream | null>(null);
-  /** When speech was last heard (audio level or new words), for end-of-turn detection. */
-  const heardAt = useRef(0);
-  const noiseFloor = useRef(0.02);
+  /** When the transcript last changed, and when the microphone last heard something louder than the room. */
+  const wordAt = useRef(0);
+  const soundAt = useRef(0);
+  /** Recent loudness levels, to learn how loud the room is when nobody is talking. */
+  const recent = useRef<number[]>([]);
   const raf = useRef<number | null>(null);
   const ctx = useRef<AudioContext | null>(null);
   const tracker = useRef<ProsodyTracker | null>(null);
@@ -76,23 +81,37 @@ export function useVoice() {
     setLevel(0);
   }
 
+  /**
+   * Opens the microphone once and keeps it open for the whole call, like a real video call, so
+   * each new turn starts instantly instead of re-asking for the device. Samples only feed the
+   * voice analysis while the candidate's turn is open.
+   */
   async function startMeter() {
+    if (stream.current?.active && ctx.current && ctx.current.state !== "closed") {
+      tracker.current = new ProsodyTracker(ctx.current.sampleRate);
+      void ctx.current.resume().catch(() => {});
+      return true;
+    }
     try {
       // Noise suppression and auto gain flatten pitch and loudness, so they stay off for analysis.
       stream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
       ctx.current = new AudioContext();
       const source = ctx.current.createMediaStreamSource(stream.current);
-      const t = new ProsodyTracker(ctx.current.sampleRate);
-      tracker.current = t;
+      tracker.current = new ProsodyTracker(ctx.current.sampleRate);
       const onBlock = (block: Float32Array) => {
-        t.push(block);
+        tracker.current?.push(block);
         let sum = 0;
         for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
         const rms = Math.sqrt(sum / block.length);
+        if (!tracker.current) return; // between turns: nothing to measure
         setLevel(Math.min(1, rms * 4));
-        // Adaptive noise floor: follows quiet rooms down quickly and noisy ones up slowly.
-        noiseFloor.current = rms < noiseFloor.current ? rms : noiseFloor.current * 0.995 + rms * 0.005;
-        if (rms > Math.max(0.012, noiseFloor.current * 3.2)) heardAt.current = performance.now();
+        // The room's own level is the quieter end of the last ~4 seconds (fans, AC, hum), so only
+        // sound clearly above it counts as the candidate still talking.
+        const r = recent.current;
+        r.push(rms);
+        if (r.length > 90) r.shift();
+        const room = [...r].sort((a, b) => a - b)[Math.floor(r.length * 0.2)] ?? rms;
+        if (r.length > 10 && rms > Math.max(0.015, room * 2.5)) soundAt.current = performance.now();
       };
       if (ctx.current.audioWorklet) {
         const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
@@ -122,8 +141,8 @@ export function useVoice() {
     if (!Ctor) return false;
     setError(null);
     finalRef.current = "";
-    heardAt.current = performance.now();
-    noiseFloor.current = 0.02;
+    wordAt.current = soundAt.current = performance.now();
+    recent.current = [];
     interimRef.current = "";
     setFinalText("");
     setInterim("");
@@ -133,13 +152,14 @@ export function useVoice() {
     r.interimResults = true;
     r.lang = "en-US";
     r.onresult = (e) => {
-      heardAt.current = performance.now();
+      const before = `${finalRef.current} ${interimRef.current}`;
       let interimText = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
         if (res.isFinal) finalRef.current = `${finalRef.current} ${res[0].transcript}`.trim();
         else interimText += res[0].transcript;
       }
+      if (`${finalRef.current} ${interimText}` !== before) wordAt.current = performance.now();
       interimRef.current = interimText;
       setFinalText(finalRef.current);
       setInterim(interimText);
@@ -170,8 +190,8 @@ export function useVoice() {
   const stop = useCallback((): { text: string; voice: VoiceMetrics | null } => {
     wantListening.current = false;
     rec.current?.stop();
-    stopMeter();
     setListening(false);
+    setLevel(0);
     const text = `${finalRef.current} ${interimRef.current}`.trim();
     interimRef.current = "";
     setInterim("");
@@ -225,10 +245,14 @@ export function useVoice() {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices();
+      // The interviewer is a man, so prefer male English voices, natural-sounding ones first.
+      const male = /\b(male|guy|daniel|david|mark|ravi|prabhat|james|george|ryan|thomas|alex|fred|aaron|arthur|oliver)\b/i;
+      const english = voices.filter((v) => /^en/i.test(v.lang));
       u.voice =
-        voices.find((v) => /en[-_](US|GB|IN)/i.test(v.lang) && /natural|neural|online/i.test(v.name)) ??
-        voices.find((v) => /en[-_](US|GB)/i.test(v.lang) && /google|samantha|daniel/i.test(v.name)) ??
-        voices.find((v) => /^en/i.test(v.lang)) ??
+        english.find((v) => male.test(v.name) && /natural|neural|online/i.test(v.name)) ??
+        english.find((v) => /google uk english male/i.test(v.name)) ??
+        english.find((v) => male.test(v.name)) ??
+        english[0] ??
         null;
       u.rate = 0.98;
       // The browser gives no audio level, so the mouth follows word boundaries instead.
@@ -256,7 +280,8 @@ export function useVoice() {
       void playCtx.current.resume().catch(() => {});
       playing.current?.stop();
       if (natural.current !== "off") setSpeaking(true);
-      const bytes = await fetchSpeech(text);
+      // A real person doesn't go silent for long: if the natural voice is slow, use the browser's.
+      const bytes = await Promise.race([fetchSpeech(text), new Promise<null>((r) => setTimeout(() => r(null), NATURAL_WAIT_MS))]);
       const ctx = playCtx.current;
       if (bytes && ctx) {
         try {
@@ -309,8 +334,51 @@ export function useVoice() {
     setSpeaking(false);
   }, []);
 
-  /** Milliseconds since the candidate last made a sound or produced a word. */
-  const quietFor = useCallback(() => performance.now() - heardAt.current, []);
+  /**
+   * Milliseconds since the candidate stopped talking. Words are the main signal; sound only
+   * covers the fraction of a second that recognition lags behind speech, so background noise can never
+   * keep a turn open forever.
+   */
+  const quietFor = useCallback(() => {
+    const lastSpoke = Math.max(wordAt.current, Math.min(soundAt.current, wordAt.current + 800));
+    return performance.now() - lastSpoke;
+  }, []);
 
-  return { supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError, mouth, voiceKind, prefetch, quietFor, stream: () => stream.current };
+  /**
+   * Pauses listening while the interviewer says something mid-answer, so his words don't end up
+   * in the candidate's transcript or voice analysis, then carries on with the same answer.
+   */
+  const hold = useCallback(async (during: () => Promise<void>) => {
+    const r = rec.current;
+    if (!r || !wantListening.current) return during();
+    finalRef.current = `${finalRef.current} ${interimRef.current}`.trim();
+    interimRef.current = "";
+    wantListening.current = false;
+    r.abort();
+    const measuring = tracker.current;
+    tracker.current = null;
+    try {
+      await during();
+    } finally {
+      tracker.current = measuring;
+      wordAt.current = soundAt.current = performance.now();
+      wantListening.current = true;
+      try {
+        r.start();
+      } catch {
+        /* already running */
+      }
+      setListening(true);
+    }
+  }, []);
+
+  /** Closes the microphone at the end of the call. */
+  const release = useCallback(() => {
+    wantListening.current = false;
+    rec.current?.abort();
+    tracker.current = null;
+    stopMeter();
+  }, []);
+
+  return { hold, release, supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError, mouth, voiceKind, prefetch, quietFor, stream: () => stream.current };
 }

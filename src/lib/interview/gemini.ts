@@ -103,10 +103,10 @@ export async function evaluateWithAI(
     rules.metrics.fillerCount ? `${rules.metrics.fillerCount} filler words` : null,
     rules.metrics.voice?.monotone ? "flat, monotone voice" : null,
     rules.metrics.voice && rules.metrics.voice.longestPauseSec > 3 ? `a ${rules.metrics.voice.longestPauseSec}s silence` : null,
-    rules.metrics.video ? `eye contact ${rules.metrics.video.eyeContactPct}%, framing ${rules.metrics.video.framing}, lighting ${rules.metrics.video.lighting}` : null,
+    rules.metrics.video ? `eye contact ${rules.metrics.video.eyeContactPct}%, face visible ${rules.metrics.video.faceVisiblePct}%, head tilted or lying down ${rules.metrics.video.tiltedPct ?? 0}% of the time, framing ${rules.metrics.video.framing}, lighting ${rules.metrics.video.lighting}` : null,
   ].filter(Boolean);
   const prompt = [
-    `You are Maya, a senior hiring manager interviewing a candidate for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} role over video.`,
+    `You are Arjun, a senior hiring manager interviewing a candidate for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} role over video.`,
     `You are brutally honest, like a real interviewer who has seen hundreds of candidates: direct, specific, never vague praise, never cruel.`,
     `If the answer is evasive, rambling, generic, wrong, off-topic, joking, or unprofessional (for example lying in bed, distractions, admitting they are not paying attention), say so plainly and explain how it lands with a real interviewer.`,
     `Calibrate to the level. A ${LEVEL_LABELS[cfg.level]} panel expects ${LEVEL_BAR[cfg.level]}.`,
@@ -133,7 +133,7 @@ export async function evaluateWithAI(
     type: "OBJECT",
     properties: { content: num, depth: num, structure: num, covered: strs, missing: strs, strengths: strs, improvements: strs, redFlags: strs, reaction: { type: "STRING" }, followUp: { type: "STRING" } },
     required: ["content", "depth", "structure", "covered", "missing", "strengths", "improvements", "reaction"],
-  });
+  }, 9000); // a live conversation can't wait longer; the rules grader takes over
   const ai = EvalSchema.parse(raw);
   const breakdown = { content: Math.round(ai.content), depth: Math.round(ai.depth), structure: Math.round(ai.structure), delivery: rules.breakdown.delivery };
   // Measured delivery problems (pace, fillers, voice, camera) keep a slot after the AI's points.
@@ -146,8 +146,10 @@ export async function evaluateWithAI(
     missing: ai.missing,
     strengths: ai.strengths,
     improvements,
-    redFlags: ai.redFlags?.length ? ai.redFlags : rules.redFlags,
-    reaction: ai.reaction?.trim() || rules.reaction,
+    // What the camera saw is measured, not judged, so its red flags always stand, and the
+    // interviewer addresses them out loud the way a real one would.
+    redFlags: [...new Set([...(ai.redFlags ?? []), ...(rules.redFlags ?? [])])],
+    reaction: rules.redFlags?.some((f) => f === "not sitting upright" || f === "out of the camera view") ? rules.reaction : ai.reaction?.trim() || rules.reaction,
     metrics: rules.metrics,
     source: "ai",
     followUp: ai.followUp?.trim() || undefined,
@@ -171,7 +173,7 @@ export async function summarizeWithAI(cfg: InterviewConfig, report: FinalReport,
  */
 export async function closingWithAI(cfg: InterviewConfig, question: string): Promise<{ reply: string; note: string }> {
   const prompt = [
-    `You are Maya, the hiring manager for ${ROLE_TEAMS[cfg.role]} at a mid-sized software company, finishing a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} interview.`,
+    `You are Arjun, the hiring manager for ${ROLE_TEAMS[cfg.role]} at a mid-sized software company, finishing a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} interview.`,
     `You asked "Do you have any questions for me?" and the candidate said: """${question.slice(0, 1000)}"""`,
     `Return:`,
     `- reply: what you say back out loud, 1-3 short natural sentences. Answer plausibly about a typical team like yours (do not invent a real company name). If they had no question, say that's fine. End warmly but briefly.`,

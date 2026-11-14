@@ -1,12 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-export function GuestButton({ className = "btn btn-accent", children = "Try it now, no sign-up" }: { className?: string; children?: React.ReactNode }) {
+/**
+ * Starts practising straight away. A visitor gets a guest session first; someone already signed
+ * in goes straight to the setup page, keeping their account (and their history).
+ */
+export function GuestButton({ className = "btn btn-accent", children = "Try it now, no sign-up", signedIn = false }: { className?: string; children?: React.ReactNode; signedIn?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Signed in: load the setup page ahead of the click, so the jump is instant. (Not for visitors:
+  // before the guest session exists, the prefetched page would be the sign-in redirect.)
+  useEffect(() => {
+    if (signedIn) router.prefetch("/interview/new");
+  }, [router, signedIn]);
   return (
     // The error sits under the button without taking space, so nothing next to it moves.
     <span className={`relative ${className.includes("w-full") ? "flex w-full" : "inline-flex"} flex-col`}>
@@ -17,6 +26,10 @@ export function GuestButton({ className = "btn btn-accent", children = "Try it n
         onClick={async () => {
           setBusy(true);
           setError(null);
+          if (signedIn) {
+            router.push("/interview/new");
+            return;
+          }
           const res = await fetch("/api/auth/guest", { method: "POST" });
           if (res.ok) {
             router.push("/interview/new");

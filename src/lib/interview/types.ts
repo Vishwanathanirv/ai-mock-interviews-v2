@@ -129,7 +129,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   product: "Product Manager",
 };
 
-/** How the interviewer introduces her team, so the opening sounds like a real company. */
+/** How the interviewer introduces his team, so the opening sounds like a real company. */
 export const ROLE_TEAMS: Record<Role, string> = {
   frontend: "the web team",
   backend: "the platform team",

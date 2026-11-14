@@ -34,7 +34,7 @@ export function decideTurn({ transcript, quietMs, sinceStartMs, nudged }: TurnIn
   if (words >= 3 && sinceStartMs >= MAX_ANSWER_MS) return "cut-in";
   // Short answers get more patience: the candidate may be gathering their thoughts. Asking for
   // a moment buys a lot more.
-  const patience = THINKING.test(text) ? 9000 : words < 12 ? 3000 : words < 40 ? 2400 : 2000;
+  const patience = THINKING.test(text) ? 9000 : words < 12 ? 2500 : words < 40 ? 2000 : 1600;
   if (words >= 3 && quietMs >= patience) return "end";
   if (words === 0 && !nudged && sinceStartMs >= 20_000) return "nudge";
   if (words === 0 && nudged && sinceStartMs >= 50_000) return "give-up";

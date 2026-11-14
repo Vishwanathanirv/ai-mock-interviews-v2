@@ -94,7 +94,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                   <span className="text-muted">You asked: </span>&ldquo;{report.closing.question}&rdquo;
                 </p>
                 <p className="mt-2 text-sm italic leading-relaxed text-muted">
-                  &ldquo;{report.closing.reply}&rdquo; <span className="not-italic text-faint">— Maya</span>
+                  &ldquo;{report.closing.reply}&rdquo; <span className="not-italic text-faint">— Arjun</span>
                 </p>
               </>
             ) : (
@@ -241,7 +241,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                     ))}
                   </div>
                   {t.evaluation.reaction && (
-                    <p className="mt-5 text-sm italic text-muted">&ldquo;{t.evaluation.reaction}&rdquo; <span className="not-italic text-faint">— Maya</span></p>
+                    <p className="mt-5 text-sm italic text-muted">&ldquo;{t.evaluation.reaction}&rdquo; <span className="not-italic text-faint">— Arjun</span></p>
                   )}
                   {t.evaluation.redFlags?.length ? (
                     <p className="mt-4 rounded-xl bg-bad-soft px-4 py-3 text-sm text-bad">

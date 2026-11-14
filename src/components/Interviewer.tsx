@@ -39,19 +39,21 @@ export function Interviewer({ mouth, speaking, listening, level }: { mouth: numb
       <g transform="translate(93.5 0)">
       <g style={{ transform: `translateY(${nod * 3}px) rotate(${nod * 1.5}deg)`, transformOrigin: "120px 170px", transition: "transform 160ms ease-out" }}>
         {/* shoulders */}
-        <path d="M38 240c6-44 40-66 82-66s76 22 82 66z" fill="#2f5d62" />
+        <path d="M34 240c6-46 42-68 86-68s80 22 86 68z" fill="#2f4a62" />
         <path d="M104 176l16 22 16-22" fill="none" stroke="#e9e3d6" strokeWidth="5" strokeLinejoin="round" />
         {/* neck and head */}
         <rect x="106" y="146" width="28" height="32" rx="10" fill="#c98f6b" />
-        <ellipse cx="120" cy="110" rx="46" ry="54" fill="#d9a07b" />
-        {/* hair */}
-        <path d="M74 104c-4-38 20-60 48-60 30 0 50 20 46 58-6-16-18-28-40-30-22-2-42 8-54 32z" fill="#2a2421" />
+        <ellipse cx="120" cy="110" rx="47" ry="54" fill="#c98f6b" />
+        {/* short hair */}
+        <path d="M74 100c-3-34 18-54 46-54 29 0 48 19 46 52-3-10-9-18-18-22-16 2-44 0-60 8-7 4-11 9-14 16z" fill="#2a2421" />
+        {/* stubble along the jaw */}
+        <path d="M76 118c3 28 22 46 44 46s41-18 44-46c-4 16-14 26-24 30-6-6-14-8-20-8s-14 2-20 8c-10-4-20-14-24-30z" fill="#2a2421" opacity="0.28" />
         {/* eyes */}
         <g fill="#231d1a">
           <ellipse cx="102" cy="112" rx="5" ry={blink ? 0.6 : 5.5} />
           <ellipse cx="138" cy="112" rx="5" ry={blink ? 0.6 : 5.5} />
         </g>
-        <path d="M93 100q9-5 18 0M129 100q9-5 18 0" stroke="#2a2421" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <path d="M92 101q10-5 20-1M128 100q10-4 20 1" stroke="#2a2421" strokeWidth="4.2" fill="none" strokeLinecap="round" />
         {/* nose */}
         <path d="M120 116q-4 12 2 14" stroke="#b47a58" strokeWidth="2.5" fill="none" strokeLinecap="round" />
         {/* mouth: a closed smile, opening with the voice */}

@@ -83,6 +83,7 @@ export class FaceTracker {
     const face: FaceSample = {
       yaw: f.rotation?.angle.yaw ?? 0,
       pitch: f.rotation?.angle.pitch ?? 0,
+      roll: f.rotation?.angle.roll ?? 0,
       gaze: f.rotation?.gaze.strength ?? 0,
       cx: x + w / 2,
       cy: y + h / 2,

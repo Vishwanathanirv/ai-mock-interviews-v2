@@ -30,7 +30,7 @@ export function HonestDemo() {
       <div className="mt-5 border-l-2 border-pencil pl-4" aria-live="polite">
         {flags.length ? (
           <>
-            <p className="font-medium text-pencil">Maya stops you here: {flags.join(", ")}.</p>
+            <p className="font-medium text-pencil">Arjun stops you here: {flags.join(", ")}.</p>
             <p className="mt-1.5 leading-relaxed text-muted">{advice[0]}</p>
           </>
         ) : (
