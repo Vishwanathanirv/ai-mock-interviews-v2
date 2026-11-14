@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import type { VideoMetrics } from "@/lib/video/analysis";
@@ -7,9 +8,9 @@ import { scoreAnswer } from "./analyzer";
 import { estimateMastery } from "./mastery";
 import { findQuestion } from "./bank";
 import { closingRules } from "./closing";
-import { aiEnabled, closingWithAI, evaluateWithAI, summarizeWithAI } from "./gemini";
-import { buildReport, firstQuestion, pickNext } from "./planner";
-import type { AnswerEvaluation, AskedQuestion, HistoryItem, InterviewConfig, Role, Level, Focus } from "./types";
+import { aiEnabled, closingWithAI, evaluateWithAI, summarizeWithAI, turnWithAI } from "./gemini";
+import { MAX_DEPTH, buildReport, depthOf, firstQuestion, nextCandidates, pickNext } from "./planner";
+import type { AnswerEvaluation, AskedQuestion, HistoryItem, InterviewConfig, Role, Level, Focus, TurnPlan } from "./types";
 
 export class NotFoundError extends Error {}
 export class ConflictError extends Error {}
@@ -33,7 +34,7 @@ async function historyOf(id: string): Promise<{ turns: schema.Turn[]; history: H
   const db = await getDb();
   const turns = await db.select().from(schema.turns).where(eq(schema.turns.interviewId, id)).orderBy(asc(schema.turns.idx));
   const history = turns.map((t) => {
-    const parentId = t.isFollowUp ? t.questionId.replace(/:probe$/, "") : undefined;
+    const parentId = t.isFollowUp ? t.questionId.replace(/:probe\d*$/, "") : undefined;
     const bank = findQuestion(parentId ?? t.questionId);
     const question: AskedQuestion = {
       id: t.questionId,
@@ -44,6 +45,7 @@ async function historyOf(id: string): Promise<{ turns: schema.Turn[]; history: H
       concepts: bank?.concepts ?? [],
       isFollowUp: Boolean(t.isFollowUp),
       parentId,
+      ...(t.isFollowUp ? { depth: depthOf(t.questionId) } : {}),
     };
     return { question, answer: t.answer, evaluation: t.evaluation };
   });
@@ -73,7 +75,11 @@ export async function listInterviews(userId: string) {
   return db.select().from(schema.interviews).where(eq(schema.interviews.userId, userId)).orderBy(desc(schema.interviews.createdAt)).limit(50);
 }
 
-/** Grades one answer, stores it, and returns the next question (or null when the interview is over). */
+/**
+ * Takes one answer and keeps the conversation moving like a person would: a quick decision on
+ * what to say and ask next, then the full grading in the background, after the response has
+ * gone back, so the candidate never waits on it. The report is finalised once at the end.
+ */
 export async function submitAnswer(userId: string, id: string, answer: string, durationSec: number, voice?: VoiceMetrics, video?: VideoMetrics) {
   const db = await getDb();
   const row = await owned(userId, id);
@@ -83,44 +89,90 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
   const { history } = await historyOf(id);
 
   const rules = scoreAnswer(q, answer, durationSec, voice, video);
-  let evaluation: AnswerEvaluation = rules;
-  let aiFollowUp: string | undefined;
-  if (row.provider === "ai" && aiEnabled()) {
+  const useAI = row.provider === "ai" && aiEnabled();
+  const depth = q.isFollowUp ? (q.depth ?? 1) : 0;
+  const context = history.map((h) => ({ q: h.question.text, a: h.answer }));
+  const draft: HistoryItem[] = [...history, { question: q, answer, evaluation: rules }];
+
+  let plan: TurnPlan | undefined;
+  if (useAI) {
     try {
-      const ai = await evaluateWithAI(cfg, q, answer, rules, history.map((h) => ({ q: h.question.text, a: h.answer })));
-      aiFollowUp = ai.followUp;
-      const { followUp: _omit, ...rest } = ai;
-      void _omit;
-      // Measurements always come from the analyser, whoever does the grading.
-      evaluation = { ...rest, metrics: rules.metrics };
+      plan = await turnWithAI(cfg, q, answer, rules, context, nextCandidates(cfg, draft, id), depth < MAX_DEPTH && history.length + 1 < cfg.totalQuestions);
     } catch (err) {
-      console.warn("[ai] evaluation failed, using rule-based scoring:", (err as Error).message);
-      evaluation = { ...rules, source: "rules" };
+      console.warn("[ai] turn decision failed, using the rules:", (err as Error).message);
     }
   }
+  // Conduct seen on camera or heard in the answer is always addressed in his own measured words.
+  const conduct = rules.redFlags?.some((f) => f !== "no real answer");
+  const evaluation: AnswerEvaluation = { ...rules, reaction: conduct || !plan?.reaction ? rules.reaction : plan.reaction };
 
+  let turnId: string;
   try {
-    await db.insert(schema.turns).values({
-      interviewId: id,
-      idx: history.length,
-      questionId: q.id,
-      question: q.text,
-      kind: q.kind,
-      isFollowUp: q.isFollowUp ? 1 : 0,
-      answer,
-      durationSec,
-      evaluation,
-    });
+    const [t] = await db
+      .insert(schema.turns)
+      .values({ interviewId: id, idx: history.length, questionId: q.id, question: q.text, kind: q.kind, isFollowUp: q.isFollowUp ? 1 : 0, answer, durationSec, evaluation })
+      .returning();
+    turnId = t.id;
   } catch {
     throw new ConflictError("That answer was already submitted.");
   }
 
   const full: HistoryItem[] = [...history, { question: q, answer, evaluation }];
-  let next = pickNext(cfg, full, id);
-  if (next?.isFollowUp && aiFollowUp) next = { ...next, text: aiFollowUp };
+  const next = pickNext(cfg, full, id, plan ? { followUp: plan.followUp, nextId: plan.nextId } : undefined);
   await db.update(schema.interviews).set({ currentQuestion: next }).where(eq(schema.interviews.id, id));
   if (!next) await finishInterview(userId, id);
-  return { evaluation, next, done: !next };
+  if (useAI) after(() => gradeTurn(cfg, turnId, q, answer, rules, context));
+  return { evaluation, next, done: !next, ...(next && !next.isFollowUp && plan?.bridge ? { transition: plan.bridge } : {}) };
+}
+
+/** Full AI grading of one stored answer. Keeps what he said out loud; measurements stay measured. */
+async function gradeTurn(cfg: InterviewConfig, turnId: string, q: AskedQuestion, answer: string, rules: AnswerEvaluation, context: { q: string; a: string }[]) {
+  try {
+    const db = await getDb();
+    const [cur] = await db.select({ evaluation: schema.turns.evaluation }).from(schema.turns).where(eq(schema.turns.id, turnId));
+    if (!cur || cur.evaluation.source === "ai") return;
+    const ai = await evaluateWithAI(cfg, q, answer, rules, context);
+    const { followUp: _f, ...rest } = ai;
+    void _f;
+    await db.update(schema.turns).set({ evaluation: { ...rest, reaction: cur.evaluation.reaction, metrics: rules.metrics } }).where(eq(schema.turns.id, turnId));
+  } catch (err) {
+    console.warn("[ai] background grading failed, keeping rule-based scores:", (err as Error).message);
+  }
+}
+
+/**
+ * Makes sure every answer has its full grade, then writes the final report and the
+ * interviewer's honest spoken verdict. Safe to call more than once.
+ */
+export async function finalizeReport(userId: string, id: string) {
+  const db = await getDb();
+  const row = await owned(userId, id);
+  if (row.report?.final) return row.report;
+  const cfg = configOf(row);
+  if (row.provider === "ai" && aiEnabled()) {
+    const { turns, history } = await historyOf(id);
+    await Promise.all(
+      turns.map((t, i) => (t.evaluation.source === "ai" ? null : gradeTurn(cfg, t.id, history[i].question, t.answer, scoreAnswer(history[i].question, t.answer, t.durationSec ?? 0, t.evaluation.metrics.voice, t.evaluation.metrics.video), history.slice(0, i).map((h) => ({ q: h.question.text, a: h.answer }))))),
+    );
+  }
+  const { history } = await historyOf(id);
+  if (!history.length) throw new ConflictError("Answer at least one question first.");
+  const source = history.some((h) => h.evaluation.source === "ai") ? "ai" : "rules";
+  let report = buildReport(cfg, history, source);
+  if (source === "ai" && aiEnabled()) {
+    try {
+      report = { ...report, summary: await summarizeWithAI(cfg, report, history.map((h) => ({ q: h.question.text, a: h.answer, score: h.evaluation.score }))) };
+    } catch (err) {
+      console.warn("[ai] debrief failed, using the rules debrief:", (err as Error).message);
+    }
+  }
+  const [fresh] = await db.select({ report: schema.interviews.report }).from(schema.interviews).where(eq(schema.interviews.id, id));
+  report = { ...report, final: true, ...(fresh?.report?.closing ? { closing: fresh.report.closing } : {}) };
+  await db
+    .update(schema.interviews)
+    .set({ status: "completed", report, overallScore: report.overall, currentQuestion: null, completedAt: row.completedAt ?? new Date() })
+    .where(eq(schema.interviews.id, id));
+  return report;
 }
 
 export async function finishInterview(userId: string, id: string) {
@@ -130,15 +182,10 @@ export async function finishInterview(userId: string, id: string) {
   const cfg = configOf(row);
   const { history } = await historyOf(id);
   if (!history.length) throw new ConflictError("Answer at least one question first.");
+  // Quick, rules-based draft so the call can wrap up at once; finalizeReport() adds the full
+  // grades and the interviewer's own verdict.
   const source = history.some((h) => h.evaluation.source === "ai") ? "ai" : "rules";
-  let report = buildReport(cfg, history, source);
-  if (source === "ai" && aiEnabled()) {
-    try {
-      report = { ...report, summary: await summarizeWithAI(cfg, report, history.map((h) => ({ q: h.question.text, a: h.answer, score: h.evaluation.score }))) };
-    } catch (err) {
-      console.warn("[ai] summary failed:", (err as Error).message);
-    }
-  }
+  const report = buildReport(cfg, history, source);
   await db
     .update(schema.interviews)
     .set({ status: "completed", report, overallScore: report.overall, currentQuestion: null, completedAt: new Date() })
@@ -164,7 +211,9 @@ export async function closeInterview(userId: string, id: string, question: strin
       console.warn("[ai] closing reply failed:", (err as Error).message);
     }
   }
-  await db.update(schema.interviews).set({ report: { ...row.report, closing } }).where(eq(schema.interviews.id, id));
+  // Re-read just before writing, so a report finalised meanwhile is kept.
+  const [latest] = await db.select({ report: schema.interviews.report }).from(schema.interviews).where(eq(schema.interviews.id, id));
+  await db.update(schema.interviews).set({ report: { ...(latest?.report ?? row.report), closing } }).where(eq(schema.interviews.id, id));
   return closing;
 }
 

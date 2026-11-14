@@ -10,6 +10,8 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 
 ## Highlights
 
+- **Listens and adapts like a person.** After each answer a small, fast AI call (Flash-Lite, 5 s limit) decides what Arjun says and does next: he reacts to something specific you said or to how you came across (rushing, flat voice, avoiding eye contact, lying down), digs deeper with his own follow-up built on your words (up to twice on the same question), or picks the next topic that follows from the conversation and bridges to it. Full grading runs in the background after the reply has gone back, so the conversation never waits on it.
+- **His verdict, to your face.** After answering your closing question he says "Before you go, I'll give you my honest feedback" and tells you, out loud and without sugar-coating, whether you'd get through, your weakest moment in your own words, and the one thing to fix. The written report follows. Without AI, a rules-based verdict is just as blunt.
 - **Runs like a real interview, start to finish.** Arjun introduces himself and his team, says how long it will take, asks his questions with follow-ups, and ends with "Do you have any questions for me?", answering yours in character. During the call he keeps his verdict to himself, like a real interviewer: no scores on screen, just natural acknowledgements, though he will stop you on the spot over conduct (lying in bed, joking). Say "let me think" and he waits; run past three minutes and he politely cuts in.
 - **A hiring panel's decision, not just a score.** The report opens with the call a real panel would make (Strong hire, Hire, Lean hire, Lean no hire or No hire) against the bar for your level, with the reasons. Conduct problems or skipped questions cap the call however good the rest was. The AI grades against a level-specific rubric with fixed score anchors, so marks are not inflated, and your closing question is judged too (asking nothing, or leading with salary, is called out).
 - **A home page made of the real instruments.** No marketing cards: the landing page runs the product's own code live. A voice is drawn on graph paper by the same YIN pitch tracker that measures answers (press one button to see your own), with every pause over 0.6 s bracketed in red pencil. Below it, a slider shows exactly when the turn-taking rule (`decideTurn`) lets the interviewer reply, buttons feed answers into the Bayesian skill estimate so you can watch its range tighten, and a text box runs the red-flag check as you type. Graph paper by day, blueprint by night.
@@ -129,7 +131,7 @@ Voice answers work in Chrome and Edge. Other browsers use the typing mode automa
 
 ```bash
 npm run lint && npm run typecheck
-npm test            # 76 unit tests (Vitest), including the DSP, turn-taking and the mastery model
+npm test            # 85 unit tests (Vitest), including the DSP, turn-taking and the mastery model
 npm run build
 npm run test:e2e    # 6 end-to-end tests (Playwright): a full hands-free interview, and generated speech through a fake microphone
 ```

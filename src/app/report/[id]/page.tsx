@@ -4,7 +4,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { Bar, ScorePill, ScoreRing } from "@/components/ScoreRing";
 import { PrintButton } from "@/components/PrintButton";
 import { getSession } from "@/lib/auth/session";
-import { finishInterview, getInterview, NotFoundError } from "@/lib/interview/service";
+import { finalizeReport, finishInterview, getInterview, NotFoundError } from "@/lib/interview/service";
 import { LEVEL_LABELS, ROLE_LABELS, type Level, type Role } from "@/lib/interview/types";
 
 export const metadata = { title: "Report" };
@@ -26,7 +26,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   }
   const { interview, turns } = data;
   if (!turns.length) redirect(`/interview/${id}`);
-  const report = interview.report ?? (await finishInterview(s.sub, id));
+  // Normally the report was finalised when the call ended; if the candidate left early, do it now.
+  let report = interview.report;
+  if (!report?.final) {
+    if (interview.status !== "completed") await finishInterview(s.sub, id);
+    report = await finalizeReport(s.sub, id);
+  }
   const title = `${LEVEL_LABELS[interview.level as Level]} ${ROLE_LABELS[interview.role as Role]}`;
   const verdictTone = report.verdict === "Strong" ? "bg-good-soft text-good" : report.verdict === "Promising" ? "bg-warn-soft text-warn" : "bg-bad-soft text-bad";
 

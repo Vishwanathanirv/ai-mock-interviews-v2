@@ -55,7 +55,7 @@ const META: Map<string, Meta> = (() => {
   return m;
 })();
 
-export const topicOf = (questionId: string) => META.get(questionId.replace(/:probe$/, ""));
+export const topicOf = (questionId: string) => META.get(questionId.replace(/:probe\d*$/, ""));
 
 /** Inverse of the regularised incomplete beta is overkill here: a normal approximation is plenty. */
 function interval(a: number, b: number) {

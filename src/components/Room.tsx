@@ -46,11 +46,14 @@ const afterAck = (line: string) => {
   return rest ? rest[0].toUpperCase() + rest.slice(1) : "";
 };
 
+const FEEDBACK_INTRO = "Before you go, I'll give you my honest feedback.";
 const CLOSING_ASK = "That's all my questions from my side. Before we wrap up, do you have any questions for me?";
 const CUT_IN = "Sorry to cut in. In the interest of time, let me stop you there.";
 
+/** What he says before a fresh question when he has no natural link from the last answer. */
 function lead(q: AskedQuestion, n: number) {
-  if (q.isFollowUp) return "I'd like to dig into that a little more.";
+  // A follow-up flows straight on from his reaction, the way a person digs into an answer.
+  if (q.isFollowUp) return "";
   return n === 0 ? "" : ["Next question.", "Let's move on.", "Okay, here's the next one."][n % 3];
 }
 
@@ -136,7 +139,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
 
   // Fetch his fixed lines early, so he starts talking the moment you join and never pauses to load.
   useEffect(() => {
-    for (const line of [answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.", initial.text, ...ACKS, CLOSING_ASK, CAMERA_OFF, "Next question.", "Let's move on."]) voice.prefetch(line);
+    for (const line of [answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.", initial.text, ...ACKS, CLOSING_ASK, FEEDBACK_INTRO, CAMERA_OFF, "Next question.", "Let's move on."]) voice.prefetch(line);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -167,12 +170,12 @@ export function Room({ id, title, team, provider, total, answered, question: ini
   }, [voice, camera]);
 
   const ask = useCallback(
-    async (q: AskedQuestion) => {
+    async (q: AskedQuestion, transition?: string) => {
       setError(null);
       setPhase("asking");
       const n = asked.current++;
       // The opening, like a real call: who he is, what to expect, then the first question.
-      const intro = n === 0 ? (answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.") : lead(q, n);
+      const intro = n === 0 ? (answered === 0 ? opening(team, total) : "Welcome back. Let's pick up where we left off.") : (transition ?? lead(q, n));
       if (intro) await say(intro);
       if (n === 0 && !camera.on) await say(CAMERA_OFF);
       await say(q.text);
@@ -216,12 +219,12 @@ export function Room({ id, title, team, provider, total, answered, question: ini
       else voice.prefetch(CLOSING_ASK);
       setPhase("reacting");
       // Neutral reactions ("Okay, thanks.") are already covered by the acknowledgement; anything
-      // with substance (conduct, a thin answer) is said out loud.
+      // with substance (what he noticed, conduct, a thin answer) is said out loud.
       const reaction = afterAck(evaluation.reaction ?? "");
-      if (reaction && (evaluation.redFlags?.length || reaction.length > 24)) await say(reaction);
+      if (reaction && (evaluation.redFlags?.length || reaction.length > 14)) await say(reaction);
       if (next) {
         setQuestion(next);
-        await ask(next);
+        await ask(next, typeof data.transition === "string" ? data.transition : undefined);
         return;
       }
       // The end of a real interview: his questions are done, now it's yours.
@@ -233,14 +236,29 @@ export function Room({ id, title, team, provider, total, answered, question: ini
     [id, voice, say, ask, listen, count],
   );
 
-  /** His reply to the candidate's question, then goodbye, then the written feedback. */
+  /**
+   * His reply to the candidate's question, then his honest verdict, out loud, face to face, then
+   * the written report. The full grading finishes while he answers their question.
+   */
   const closeOut = useCallback(
     async (asked: string) => {
       setPhase("finishing");
       setCaption(null);
       const res = await fetch(`/api/interviews/${id}/closing`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: asked }) });
       const data = await res.json().catch(() => ({}));
-      await say(res.ok && data.closing?.reply ? data.closing.reply : "Thanks again for your time today, it was good talking to you.");
+      const verdict = fetch(`/api/interviews/${id}/debrief`, { method: "POST" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { debrief?: string } | null) => {
+          if (d?.debrief) voice.prefetch(d.debrief); // start his voice for it as soon as it exists
+          return d;
+        })
+        .catch(() => null);
+      const reply = res.ok && typeof data.closing?.reply === "string" ? data.closing.reply.replace(/\s*Thanks again for your time today[^.]*\.?$/i, "") : "";
+      if (reply) await say(reply);
+      await say(FEEDBACK_INTRO);
+      const d = (await verdict) as { debrief?: string } | null;
+      if (d?.debrief) await say(d.debrief);
+      await say("That's everything. Your full written feedback is next. Thanks for your time today.");
       camera.stop();
       voice.release();
       router.push(`/report/${id}`);
@@ -376,7 +394,7 @@ export function Room({ id, title, team, provider, total, answered, question: ini
             A live conversation with {INTERVIEWER}: he asks, you just talk, and when you pause he takes it from there, reacting to what you actually said and moving on, like a real interviewer. {total - answered} question{total - answered === 1 ? "" : "s"}, with follow-ups when an answer needs one.
           </p>
           <ul className="mt-4 space-y-1.5 text-sm text-muted">
-            <li>• Like the real thing: he introduces himself, asks his questions with follow-ups, then asks if you have any questions for him. Scores and feedback come only at the end.</li>
+            <li>• Like the real thing: he introduces himself, listens, reacts to what you say and how you come across, digs deeper when an answer needs it, and steers to the next topic from your answers. At the end he asks if you have questions, then tells you his honest verdict to your face.</li>
             <li>• Voice only. No typing, no buttons, and one take per answer: once you stop talking, it counts.</li>
             <li>• Stop talking for a couple of seconds and he&apos;ll respond. Say &ldquo;that&apos;s it&rdquo; to finish sooner. Didn&apos;t catch the question? Ask him to repeat it, out loud.</li>
             <li>• Expect brutally honest feedback at the end, including whether a real panel would move you to the next round.</li>

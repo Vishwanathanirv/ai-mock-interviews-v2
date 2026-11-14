@@ -6,7 +6,7 @@ import { synthesize, ttsEnabled, TtsError } from "@/lib/interview/tts";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const Input = z.object({ text: z.string().trim().min(1).max(600) });
+const Input = z.object({ text: z.string().trim().min(1).max(1200) });
 
 /** The interviewer's natural voice. 503 tells the client to use the browser voice instead. */
 export const POST = handle(async (req: Request) => {

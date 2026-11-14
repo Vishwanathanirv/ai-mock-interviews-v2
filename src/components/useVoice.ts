@@ -281,7 +281,9 @@ export function useVoice() {
       playing.current?.stop();
       if (natural.current !== "off") setSpeaking(true);
       // A real person doesn't go silent for long: if the natural voice is slow, use the browser's.
-      const bytes = await Promise.race([fetchSpeech(text), new Promise<null>((r) => setTimeout(() => r(null), NATURAL_WAIT_MS))]);
+      // Longer lines take longer to synthesise, so they get a little more time.
+      const wait = Math.min(12_000, Math.max(NATURAL_WAIT_MS, text.length * 10));
+      const bytes = await Promise.race([fetchSpeech(text), new Promise<null>((r) => setTimeout(() => r(null), wait))]);
       const ctx = playCtx.current;
       if (bytes && ctx) {
         try {

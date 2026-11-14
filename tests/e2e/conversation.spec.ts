@@ -42,6 +42,11 @@ test("the interviewer listens, reacts honestly and moves on without any buttons"
   // The rest of the interview runs to the report with no clicks at all, ending with him asking for questions.
   await page.waitForURL(/\/report\//, { timeout: 60_000 });
   expect((await spoken(page)).some((l) => /any questions for me\?$/.test(l))).toBe(true);
+  // Then, face to face, his honest verdict before the written report.
+  const lines = await spoken(page);
+  const intro = lines.indexOf("Before you go, I'll give you my honest feedback.");
+  expect(intro).toBeGreaterThan(0);
+  expect(lines[intro + 1]).toMatch(/^(I'll be straight with you|As it stands, I wouldn't)/);
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText(/Red flag/).first()).toBeVisible();
   // The panel's call: conduct problems cap it, however the other answers went.

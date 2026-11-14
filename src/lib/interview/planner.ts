@@ -9,14 +9,25 @@ import type {
   InterviewConfig,
   Level,
   ScoreBreakdown,
+  TurnPlan,
 } from "./types";
 import { LEVEL_LABELS, ROLE_LABELS } from "./types";
 
 const START_DIFFICULTY: Record<Level, number> = { intern: 1, junior: 1.5, mid: 2, senior: 2.5 };
 
-export function toAsked(b: BankQuestion, followUp?: { parentId: string; text: string }): AskedQuestion {
+/** How many times the interviewer may dig into the same question before moving on. */
+export const MAX_DEPTH = 2;
+
+/** Follow-up depth from a stored question id: "be-idem:probe" is 1, "be-idem:probe2" is 2. */
+export const depthOf = (id: string) => {
+  const m = /:probe(\d*)$/.exec(id);
+  return m ? (m[1] ? +m[1] : 1) : 0;
+};
+
+export function toAsked(b: BankQuestion, followUp?: { parentId: string; text: string; depth?: number }): AskedQuestion {
+  const depth = followUp ? (followUp.depth ?? 1) : 0;
   return {
-    id: followUp ? `${b.id}:probe` : b.id,
+    id: followUp ? `${b.id}:probe${depth > 1 ? depth : ""}` : b.id,
     kind: b.kind,
     topic: b.topic,
     difficulty: b.difficulty,
@@ -24,6 +35,7 @@ export function toAsked(b: BankQuestion, followUp?: { parentId: string; text: st
     concepts: b.concepts,
     isFollowUp: Boolean(followUp),
     parentId: followUp?.parentId,
+    ...(followUp ? { depth } : {}),
   };
 }
 
@@ -55,25 +67,41 @@ export function firstQuestion(cfg: InterviewConfig, seed: string): AskedQuestion
 }
 
 /**
- * Decides what to ask next: a probing follow-up when a strong concept was missed,
- * otherwise a fresh question near the adaptive difficulty, alternating kinds for mixed interviews.
+ * Decides what to ask next, like an interviewer who listens. If he wants to dig deeper (his
+ * own follow-up, built on the candidate's words), he can, up to twice on the same question.
+ * Without AI, a strong concept that was missed gets one probing follow-up. Otherwise a fresh
+ * question near the adaptive difficulty, preferring the one he picked as the natural next step.
  */
-export function pickNext(cfg: InterviewConfig, history: HistoryItem[], seed: string): AskedQuestion | null {
+export function pickNext(cfg: InterviewConfig, history: HistoryItem[], seed: string, plan?: Pick<TurnPlan, "followUp" | "nextId">): AskedQuestion | null {
   if (history.length >= cfg.totalQuestions) return null;
   const last = history.at(-1);
-  if (last && !last.question.isFollowUp && shouldProbe(last.evaluation) && history.length < cfg.totalQuestions - 1) {
-    const bank = poolFor(cfg.role, cfg.focus).find((b) => b.id === last.question.id);
-    if (bank?.probe) {
+  if (last) {
+    const depth = last.question.isFollowUp ? (last.question.depth ?? 1) : 0;
+    const rootId = last.question.parentId ?? last.question.id;
+    const bank = poolFor(cfg.role, "mixed").find((b) => b.id === rootId);
+    if (bank && plan?.followUp && depth < MAX_DEPTH) {
+      return toAsked(bank, { parentId: bank.id, text: plan.followUp, depth: depth + 1 });
+    }
+    if (bank?.probe && !plan && depth === 0 && shouldProbe(last.evaluation) && history.length < cfg.totalQuestions - 1) {
       return toAsked(bank, { parentId: bank.id, text: bank.probe.replace("{concept}", last.evaluation.missing[0]) });
     }
   }
+  const pool = freshPool(cfg, history);
+  if (!pool.length) return null;
+  const chosen = plan?.nextId ? pool.find((b) => b.id === plan.nextId) : undefined;
+  return toAsked(chosen ?? rankByDifficulty(cfg, history, pool, seed));
+}
+
+/** Questions not asked yet, narrowed to targets and to the kind a mixed interview needs next. */
+function freshPool(cfg: InterviewConfig, history: HistoryItem[]): BankQuestion[] {
   const asked = new Set(history.map((h) => h.question.parentId ?? h.question.id));
+  const last = history.at(-1);
   let pool = poolFor(cfg.role, cfg.targets?.length ? "mixed" : cfg.focus).filter((b) => !asked.has(b.id));
   if (cfg.targets?.length) {
     // Practice-plan sessions draw from the target topics first, and only then from the rest.
     const wanted = new Set(cfg.targets);
     const targeted = pool.filter((b) => wanted.has(b.topic));
-    if (targeted.length) return toAsked(rankByDifficulty(cfg, history, targeted, seed));
+    if (targeted.length) return targeted;
     pool = poolFor(cfg.role, cfg.focus).filter((b) => !asked.has(b.id));
   }
   if (cfg.focus === "mixed" && last) {
@@ -81,8 +109,18 @@ export function pickNext(cfg: InterviewConfig, history: HistoryItem[], seed: str
     const sameKind = pool.filter((b) => b.kind === wantKind);
     if (sameKind.length) pool = sameKind;
   }
-  if (!pool.length) return null;
-  return toAsked(rankByDifficulty(cfg, history, pool, seed));
+  return pool;
+}
+
+/** The few fresh questions that fit best right now, for the interviewer to choose between. */
+export function nextCandidates(cfg: InterviewConfig, history: HistoryItem[], seed: string, n = 4): BankQuestion[] {
+  const target = targetDifficulty(cfg, history);
+  const rand = seeded(`${seed}:${history.length}`);
+  return freshPool(cfg, history)
+    .map((b) => ({ b, d: Math.abs(b.difficulty - target) + rand() * 0.6 }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, n)
+    .map((x) => x.b);
 }
 
 /** The question nearest the adaptive difficulty, with a little seeded randomness to vary sessions. */
@@ -129,9 +167,7 @@ export function buildReport(cfg: InterviewConfig, history: HistoryItem[], source
   return {
     overall,
     verdict,
-    summary:
-      summary ??
-      `${decision.nextRound ? "As it stands, this would likely get you to the next round." : "As it stands, this wouldn't pass a real interview."} Your strongest area was ${strongest}; the biggest gains will come from ${weakest}.`,
+    summary: summary ?? rulesDebrief(decision, history, breakdown, strongest, weakest),
     breakdown,
     strengths: tally(evals.flatMap((e) => e.strengths)).slice(0, 4),
     improvements: tally(evals.flatMap((e) => e.improvements)).slice(0, 4),
@@ -216,4 +252,27 @@ export function hiringDecision(cfg: InterviewConfig, history: HistoryItem[], ove
 
   const call = CALLS[rank];
   return { call, bar, nextRound: rank >= 2, reasons };
+}
+
+const OPENERS: Record<HireCall, string> = {
+  "Strong hire": "Honestly, that was strong. I'd move you forward without much debate.",
+  Hire: "You'd get through this round.",
+  "Lean hire": "You'd probably scrape through, but it was closer than you'd like.",
+  "Lean no hire": "As it stands, I wouldn't move you forward.",
+  "No hire": "I'll be straight with you: this wouldn't get you through.",
+};
+
+/** The interviewer's spoken verdict when there is no AI: blunt, specific, one thing to fix. */
+export function rulesDebrief(decision: NonNullable<FinalReport["decision"]>, history: HistoryItem[], breakdown: ScoreBreakdown, strongest: keyof ScoreBreakdown, weakest: keyof ScoreBreakdown): string {
+  const out = [OPENERS[decision.call]];
+  const conduct = [...new Set(history.flatMap((h) => h.evaluation.redFlags ?? []))].filter((f) => f !== "no real answer");
+  if (conduct.length) out.push(`The ${conduct.join(" and the ")} alone would have ended a real interview, before your answers even mattered.`);
+  const worst = [...history].sort((a, b) => a.evaluation.score - b.evaluation.score)[0];
+  if (worst && worst.evaluation.score < 60) {
+    const fix = worst.evaluation.improvements[0];
+    out.push(`Your weakest moment was when I asked, "${worst.question.text}"${fix ? `. ${fix}` : ". It didn't really answer the question."}`);
+  }
+  if (breakdown[strongest] >= 70) out.push(`Your ${strongest} was genuinely good.`);
+  out.push(`The one thing to fix before a real interview is your ${weakest}.`);
+  return out.join(" ");
 }

@@ -33,6 +33,19 @@ export type AskedQuestion = {
   concepts: readonly Concept[];
   isFollowUp: boolean;
   parentId?: string;
+  /** How many follow-ups deep this is (1 = first follow-up). The interviewer can dig twice. */
+  depth?: number;
+};
+
+/** What the interviewer decides on the spot after an answer, before full grading. */
+export type TurnPlan = {
+  reaction: string;
+  /** A follow-up built on what they actually said, when he wants to dig deeper. */
+  followUp?: string;
+  /** The bank question that follows most naturally from the conversation. */
+  nextId?: string;
+  /** A short spoken link from this answer to the next question. */
+  bridge?: string;
 };
 
 export type DeliveryMetrics = {
@@ -98,6 +111,8 @@ export type FinalReport = {
   source: "ai" | "rules";
   /** What a hiring panel would decide, against the bar for this level. */
   decision?: { call: HireCall; bar: number; nextRound: boolean; reasons: string[] };
+  /** True once every answer has its full grade and the interviewer's debrief is written. */
+  final?: boolean;
   /** The "any questions for me?" moment at the end. */
   closing?: { question: string; reply: string; note: string; asked: boolean };
 };

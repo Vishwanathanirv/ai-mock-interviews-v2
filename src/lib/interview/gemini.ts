@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { weighted } from "./analyzer";
-import type { AnswerEvaluation, AskedQuestion, FinalReport, InterviewConfig } from "./types";
+import type { AnswerEvaluation, AskedQuestion, BankQuestion, FinalReport, InterviewConfig, TurnPlan } from "./types";
 import { LEVEL_LABELS, ROLE_LABELS, ROLE_TEAMS, type Level } from "./types";
 
 /** What a panel expects at each level, so grading is calibrated rather than one-size-fits-all. */
@@ -63,14 +63,21 @@ async function callModel(model: string, prompt: string, schema: object, timeoutM
   }
 }
 
-async function callGemini(prompt: string, schema: object, timeoutMs = 15000): Promise<unknown> {
+/** The quickest model, for the live part of the conversation where every second shows. */
+const FAST_MODEL = () => process.env.GEMINI_FAST_MODEL || "gemini-3.5-flash-lite";
+
+async function callGemini(prompt: string, schema: object, timeoutMs = 15000, fast = false): Promise<unknown> {
   const list = MODELS();
-  const order = aiStatus.model && list.includes(aiStatus.model) ? [aiStatus.model, ...list.filter((m) => m !== aiStatus.model)] : list;
+  const order = fast
+    ? [FAST_MODEL(), ...list.filter((m) => m !== FAST_MODEL())]
+    : aiStatus.model && list.includes(aiStatus.model)
+      ? [aiStatus.model, ...list.filter((m) => m !== aiStatus.model)]
+      : list;
   let last: Error | null = null;
   for (const model of order) {
     try {
       const out = await callModel(model, prompt, schema, timeoutMs);
-      aiStatus.model = model;
+      if (!fast) aiStatus.model = model;
       aiStatus.lastOk = Date.now();
       aiStatus.lastError = null;
       return out;
@@ -85,6 +92,74 @@ async function callGemini(prompt: string, schema: object, timeoutMs = 15000): Pr
 
 const num = { type: "NUMBER" };
 const strs = { type: "ARRAY", items: { type: "STRING" } };
+
+/** What he could see and hear, in plain words, from the measurements (never guessed). */
+function observed(rules: AnswerEvaluation): string[] {
+  const m = rules.metrics;
+  const v = m.voice;
+  const cam = m.video;
+  return [
+    m.wpm ? `pace ${m.articulationWpm ?? m.wpm} words/min${(m.articulationWpm ?? m.wpm) > 175 ? " (rushing)" : (m.articulationWpm ?? m.wpm) < 100 ? " (slow)" : ""}` : null,
+    m.fillerCount ? `${m.fillerCount} filler words (${Object.keys(m.fillers).slice(0, 3).join(", ")})` : null,
+    m.hedges ? `hedged ${m.hedges} times ("I think", "maybe")` : null,
+    v?.monotone ? "flat, monotone voice" : null,
+    v && v.longestPauseSec > 3 ? `a ${v.longestPauseSec}s silence mid-answer` : null,
+    cam ? `on camera: eye contact ${cam.eyeContactPct}%, looked away ${cam.lookAways} times, expression mostly ${cam.expression ?? "neutral"}, smiled ${cam.smilePct}% of the time, head movement ${cam.movement > 0.35 ? "restless" : "calm"}, ${(cam.tiltedPct ?? 0) >= 40 ? "lying down or tilted sideways" : "upright"}, face visible ${cam.faceVisiblePct}%` : "camera off",
+  ].filter((x): x is string => Boolean(x));
+}
+
+/**
+ * The live part of the conversation: what he says right after the answer and what he does
+ * next. Small and fast on purpose; the full grading happens separately, off the critical path.
+ */
+export async function turnWithAI(
+  cfg: InterviewConfig,
+  q: AskedQuestion,
+  answer: string,
+  rules: AnswerEvaluation,
+  context: { q: string; a: string }[],
+  candidates: BankQuestion[],
+  canFollowUp: boolean,
+): Promise<TurnPlan> {
+  const prompt = [
+    `You are Arjun, a senior hiring manager running a live video interview for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} role. You are a real person: you listen closely, notice things, and react naturally and briefly.`,
+    context.length ? `Earlier:\n${context.slice(-3).map((c) => `You: ${c.q}\nThem: ${c.a.slice(0, 280)}`).join("\n")}` : "",
+    `You just asked: ${q.text}`,
+    `They answered (speech-to-text, ignore typos): """${answer.slice(0, 2500)}"""`,
+    `What you noticed while they spoke (measured, trust it): ${observed(rules).join("; ")}.`,
+    rules.redFlags?.length ? `Problems a real interviewer would address now: ${rules.redFlags.join(", ")}.` : "",
+    `Concepts a strong answer covers: ${q.concepts.map((c) => c[0]).join(", ")}. They seem to have missed: ${rules.missing.join(", ") || "nothing obvious"}.`,
+    canFollowUp ? `You may dig deeper on this answer with a follow-up, or move on.` : `You have already dug into this one enough: move on.`,
+    candidates.length ? `Possible next questions:\n${candidates.map((c) => `[${c.id}] ${c.text}`).join("\n")}` : "",
+    ``,
+    `Return:`,
+    `- reaction: what you say out loud now, 1-2 short spoken sentences, like a person, never a score or a grade. React to something specific: a detail they said, a claim that sounds shaky, or (only if it stands out) how they came across on camera or in their voice, e.g. "You seem a bit rushed, take your time." Address conduct problems directly and politely. Don't ask a question here.`,
+    `- action: "follow_up" if a real interviewer would push on this (vague, a claim worth testing, an interesting detail, a gap that matters), otherwise "next".`,
+    `- followUp: if following up, one natural question built on their own words (ask for a concrete example, "why", a trade-off, or what would break). Otherwise empty.`,
+    `- nextId: if moving on, the id of the next question that follows most naturally from the conversation.`,
+    `- bridge: if moving on, an optional short spoken sentence linking what they said to the next topic (no question in it). Empty if nothing natural.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const raw = await callGemini(
+    prompt,
+    {
+      type: "OBJECT",
+      properties: { reaction: { type: "STRING" }, action: { type: "STRING", enum: ["follow_up", "next"] }, followUp: { type: "STRING" }, nextId: { type: "STRING" }, bridge: { type: "STRING" } },
+      required: ["reaction", "action"],
+    },
+    5000,
+    true,
+  );
+  const t = z.object({ reaction: z.string().max(400), action: z.enum(["follow_up", "next"]), followUp: z.string().max(400).optional(), nextId: z.string().max(80).optional(), bridge: z.string().max(240).optional() }).parse(raw);
+  const follow = canFollowUp && t.action === "follow_up" && t.followUp?.trim() ? t.followUp.trim() : undefined;
+  return {
+    reaction: t.reaction.trim(),
+    ...(follow ? { followUp: follow } : {}),
+    ...(!follow && t.nextId && candidates.some((c) => c.id === t.nextId) ? { nextId: t.nextId } : {}),
+    ...(!follow && t.bridge?.trim() ? { bridge: t.bridge.trim() } : {}),
+  };
+}
 
 /**
  * Grades an answer the way a senior hiring manager would, and writes what the interviewer says
@@ -158,13 +233,16 @@ export async function evaluateWithAI(
 
 export async function summarizeWithAI(cfg: InterviewConfig, report: FinalReport, transcript: { q: string; a: string; score: number }[]): Promise<string> {
   const prompt = [
-    `You were the interviewer for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} interview. Write the 3-4 sentence feedback you would give the candidate after the hiring panel met.`,
-    `Overall score ${report.overall}/100 against a bar of ${report.decision?.bar ?? "?"}. Panel decision: ${report.decision?.call ?? report.verdict}. Category averages: ${JSON.stringify(report.breakdown)}.`,
-    `Be brutally honest and specific, like a senior hiring manager who respects them enough to tell the truth: state the decision and the main reason for it, quote or point to a specific answer, name one real strength only if there is one, and the single most valuable thing to fix before a real interview. Address them as "you". No sugar-coating, no cruelty.`,
+    `You are Arjun. You just interviewed this candidate for a ${LEVEL_LABELS[cfg.level]} ${ROLE_LABELS[cfg.role]} role, and now you tell them, face to face, what you really thought. This is spoken out loud, so write it the way you would say it.`,
+    `Their overall score is ${report.overall}/100 against a bar of ${report.decision?.bar ?? "?"}. The panel's call: ${report.decision?.call ?? report.verdict}. Category averages: ${JSON.stringify(report.breakdown)}.`,
+    report.decision?.reasons.length ? `Why: ${report.decision.reasons.join(" ")}` : "",
+    `Be brutally honest, the way a senior hiring manager is with someone they respect: no sugar-coating, no filler praise, no cruelty. In 4 to 6 short sentences: say plainly whether they would get through and why; point to their weakest moment, quoting or paraphrasing what they actually said; say what that would make a real panel think; name one genuine strength only if there was one; end with the single most important thing to fix before a real interview. Address them as "you". No lists, no headings, no scores read out as numbers more than once.`,
     `Transcript:\n${transcript.map((t, i) => `Q${i + 1} (${t.score}/100): ${t.q}\nA: ${t.a.slice(0, 600)}`).join("\n")}`,
-  ].join("\n");
-  const raw = await callGemini(prompt, { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] });
-  return z.object({ summary: z.string().min(10).max(800) }).parse(raw).summary;
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const raw = await callGemini(prompt, { type: "OBJECT", properties: { summary: { type: "STRING" } }, required: ["summary"] }, 12_000);
+  return z.object({ summary: z.string().min(10).max(1200) }).parse(raw).summary;
 }
 
 /**
