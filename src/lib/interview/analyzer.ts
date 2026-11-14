@@ -69,6 +69,50 @@ export function analyzeDelivery(answer: string, durationSec: number, voice?: Voi
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
+/**
+ * Things a real interviewer would react to before anything else: an unprofessional setting,
+ * not engaging with the question, or brushing it off.
+ */
+const RED_FLAGS: { re: RegExp; flag: string; advice: string }[] = [
+  {
+    re: /\b(lying (down|in bed|on (my|the) (bed|couch|sofa))|in (my )?bed|half asleep|just woke up|eating (right now|now)|roommate|room ?mate|(playing|watching) (bgmi|pubg|valorant|fortnite|cod|free ?fire|games?|netflix|tv|youtube))\b/i,
+    flag: "unprofessional setting",
+    advice: "You told the interviewer about your setting (lying down, distractions around you). In a real interview that alone can end it: sit upright at a desk, in a quiet room, and treat the call like an in-person meeting.",
+  },
+  {
+    re: /^\W*(i don'?t know|no idea|idk|pass|skip|nothing( much)?|not sure|can'?t say|no comment)\b/i,
+    flag: "no real answer",
+    advice: "You didn't attempt the question. Even when you don't know, reason out loud: say what you do know, how you would find out, and take a best guess.",
+  },
+  {
+    re: /\b(lol|lmao|whatever|bruh|bro,|just kidding|jk)\b/i,
+    flag: "dismissive tone",
+    advice: "The tone came across as casual and dismissive. Interviewers read that as not taking the role seriously.",
+  },
+];
+
+export function detectRedFlags(answer: string): { flags: string[]; advice: string[] } {
+  const hits = RED_FLAGS.filter((r) => r.re.test(answer));
+  return { flags: hits.map((h) => h.flag), advice: hits.map((h) => h.advice) };
+}
+
+/** Deterministic choice so the same answer gets the same line, but different answers vary. */
+const pick = <T,>(xs: T[], key: string) => {
+  let h = 0;
+  for (const c of key) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return xs[Math.abs(h) % xs.length];
+};
+
+/** What the interviewer says right after an answer when grading without AI. Honest, short, specific. */
+export function rulesReaction(q: AskedQuestion, e: Pick<AnswerEvaluation, "score" | "covered" | "missing" | "redFlags" | "metrics">, answer: string): string {
+  if (e.redFlags?.includes("unprofessional setting")) return pick(["I'll be honest: telling an interviewer you're lying down with a game going on behind you would end most interviews right there.", "Honestly, that setting would cost you this job before your answer even mattered. Let's treat this like the real thing."], answer);
+  if (e.redFlags?.includes("no real answer")) return pick(["That's not an answer I can work with. In a real interview, think out loud rather than passing.", "I need you to at least attempt it. Saying you don't know and stopping is the weakest possible answer."], answer);
+  if (e.metrics.words < 15) return pick(["That was very short. I don't have enough to judge you on.", "That's too brief. An interviewer would assume you don't know much about this."], answer);
+  if (e.score >= 75) return pick([`Good. ${e.covered[0] ? `Bringing in ${e.covered[0]} was the right call.` : "That was clear and specific."}`, "That's a solid answer, clear and to the point.", `Nice. That's the kind of detail I was looking for.`], answer);
+  if (e.score >= 50) return e.missing[0] ? pick([`Okay. That's partly there, but you never got to ${e.missing[0]}.`, `Alright. Decent start, though I was waiting to hear about ${e.missing[0]}.`], answer) : "Okay. It's fine, but it needs more specifics to stand out.";
+  return e.missing.length ? pick([`Honestly, that didn't really answer the question. I was listening for ${e.missing.slice(0, 2).join(" and ")}.`, `That missed the point of the question. The key was ${e.missing[0]}.`], answer) : "Honestly, that didn't land. It was too vague to show me what you can do.";
+}
+
 /** Transparent, rule-based scoring used offline and to ground AI scores with measurable delivery data. */
 export function scoreAnswer(question: AskedQuestion, answer: string, durationSec: number, voice?: VoiceMetrics, video?: VideoMetrics): AnswerEvaluation {
   const norm = normalize(answer);
@@ -117,10 +161,18 @@ export function scoreAnswer(question: AskedQuestion, answer: string, durationSec
   }
   if (metrics.words < 15) delivery = Math.min(delivery, 40);
 
-  const breakdown: ScoreBreakdown = { content, depth, structure, delivery: clamp(delivery) };
+  const red = detectRedFlags(answer);
+  // A non-answer or an unprofessional setting caps the score, however many keywords slip in.
+  const capped = red.flags.includes("no real answer") || red.flags.includes("unprofessional setting");
+  const breakdown: ScoreBreakdown = capped
+    ? { content: Math.min(content, 15), depth: Math.min(depth, 20), structure: Math.min(structure, 20), delivery: Math.min(clamp(delivery), 40) }
+    : { content, depth, structure, delivery: clamp(delivery) };
   const score = weighted(breakdown, question.kind);
-
-  return { score, breakdown, covered, missing, ...feedback(question, metrics, breakdown, covered, missing), metrics, source: "rules" };
+  const fb = feedback(question, metrics, breakdown, covered, missing);
+  const improvements = [...red.advice, ...fb.improvements].slice(0, 3);
+  const strengths = capped ? fb.strengths.filter((s) => !/^Stayed on the question/.test(s)) : fb.strengths;
+  const base = { score, breakdown, covered, missing, strengths, improvements, metrics, source: "rules" as const, ...(red.flags.length ? { redFlags: red.flags } : {}) };
+  return { ...base, reaction: rulesReaction(question, base, answer) };
 }
 
 export function weighted(b: ScoreBreakdown, kind: "technical" | "behavioral"): number {
@@ -162,7 +214,7 @@ function feedback(q: AskedQuestion, m: DeliveryMetrics, b: ScoreBreakdown, cover
   const fromVoice: string[] = [];
   if (m.voice?.monotone) fromVoice.push(`Your pitch stayed within about ${m.voice.pitchRangeSemitones} semitones, which can sound flat. Lift your voice on the key result and slow down on numbers.`);
   if (m.voice && m.voice.longestPauseSec > 3) fromVoice.push(`One pause lasted ${m.voice.longestPauseSec} s. If you need time, say "Let me think about that for a second" instead of going silent.`);
-  if (!strengths.length) strengths.push("Stayed on the question and gave an answer to build on.");
+  if (!strengths.length && covered.length) strengths.push(`You did touch on ${covered[0]}.`);
   // What the microphone heard gets one of the three slots, so it is never crowded out.
   // Presence (voice, then camera) gets one of the three slots, so it is never crowded out.
   const presence = [...fromVoice, ...cam.improvements];

@@ -4,8 +4,11 @@ const GOOD =
   "When I was building my payment project, my task was to make checkout reliable. First I verified the webhook signature with an HMAC. Then I made the handler idempotent with an idempotency key and a unique constraint on the event id, so duplicates are ignored. I return 200 quickly and retry slow work in a background job. As a result we stopped double orders and errors fell by 40 percent.";
 
 async function answerTyped(page: Page, text: string) {
+  // Wait until it is the candidate's turn (by voice, by typing, or paused), then type.
+  await expect(page.getByText(/^(Your turn|Paused)/)).toBeVisible();
   const box = page.getByLabel("Your answer");
   if (!(await box.isVisible())) await page.getByRole("button", { name: "Type instead" }).click();
+  await expect(page.getByLabel("Your answer")).toBeEnabled();
   await page.getByLabel("Your answer").fill(text);
   await page.getByRole("button", { name: "Submit answer" }).click();
   await expect(page.getByText("Quick feedback")).toBeVisible();
@@ -25,12 +28,10 @@ test("guest can complete a full interview and see a report", async ({ page }) =>
   await page.getByLabel("Read questions aloud").uncheck();
   await page.getByRole("button", { name: "Join interview" }).click();
 
-  for (let i = 0; i < 3; i++) {
+  // The interviewer reacts and moves on by herself; there is no "next" button.
+  for (let i = 0; i < 6 && !/\/report\//.test(page.url()); i++) {
     await answerTyped(page, GOOD);
-    const next = page.getByRole("button", { name: /Next question|Answer the follow-up|See my report/ });
-    const label = await next.textContent();
-    await next.click();
-    if (label?.includes("See my report")) break;
+    await Promise.race([page.waitForURL(/\/report\//, { timeout: 15_000 }).catch(() => {}), expect(page.getByLabel("Your answer")).toBeEnabled({ timeout: 15_000 }).catch(() => {})]);
   }
 
   await expect(page).toHaveURL(/\/report\//);

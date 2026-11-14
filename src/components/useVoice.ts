@@ -45,6 +45,9 @@ export function useVoice() {
   const finalRef = useRef("");
   const interimRef = useRef("");
   const stream = useRef<MediaStream | null>(null);
+  /** When speech was last heard (audio level or new words), for end-of-turn detection. */
+  const heardAt = useRef(0);
+  const noiseFloor = useRef(0.02);
   const raf = useRef<number | null>(null);
   const ctx = useRef<AudioContext | null>(null);
   const tracker = useRef<ProsodyTracker | null>(null);
@@ -85,7 +88,11 @@ export function useVoice() {
         t.push(block);
         let sum = 0;
         for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
-        setLevel(Math.min(1, Math.sqrt(sum / block.length) * 4));
+        const rms = Math.sqrt(sum / block.length);
+        setLevel(Math.min(1, rms * 4));
+        // Adaptive noise floor: follows quiet rooms down quickly and noisy ones up slowly.
+        noiseFloor.current = rms < noiseFloor.current ? rms : noiseFloor.current * 0.995 + rms * 0.005;
+        if (rms > Math.max(0.012, noiseFloor.current * 3.2)) heardAt.current = performance.now();
       };
       if (ctx.current.audioWorklet) {
         const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
@@ -115,6 +122,8 @@ export function useVoice() {
     if (!Ctor) return false;
     setError(null);
     finalRef.current = "";
+    heardAt.current = performance.now();
+    noiseFloor.current = 0.02;
     interimRef.current = "";
     setFinalText("");
     setInterim("");
@@ -124,6 +133,7 @@ export function useVoice() {
     r.interimResults = true;
     r.lang = "en-US";
     r.onresult = (e) => {
+      heardAt.current = performance.now();
       let interimText = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
@@ -299,5 +309,8 @@ export function useVoice() {
     setSpeaking(false);
   }, []);
 
-  return { supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError, mouth, voiceKind, prefetch, stream: () => stream.current };
+  /** Milliseconds since the candidate last made a sound or produced a word. */
+  const quietFor = useCallback(() => performance.now() - heardAt.current, []);
+
+  return { supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError, mouth, voiceKind, prefetch, quietFor, stream: () => stream.current };
 }

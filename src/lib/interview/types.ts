@@ -70,6 +70,10 @@ export type AnswerEvaluation = {
   improvements: string[];
   metrics: DeliveryMetrics;
   source: "ai" | "rules";
+  /** Things that would hurt the candidate in a real interview. */
+  redFlags?: string[];
+  /** What the interviewer says out loud after this answer. */
+  reaction?: string;
 };
 
 export type FinalReport = {
