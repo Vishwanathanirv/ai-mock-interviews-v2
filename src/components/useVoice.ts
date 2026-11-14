@@ -57,6 +57,7 @@ export function useVoice() {
       rec.current?.abort();
       stopMeter();
       if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+      void playCtx.current?.close().catch(() => {});
     };
   }, []);
 
@@ -169,35 +170,134 @@ export function useVoice() {
     return { text, voice: voice && voice.speakingSec >= 3 ? voice : null };
   }, []);
 
-  const speak = useCallback((text: string) => {
+  // ---------- the interviewer's voice ----------
+  // Natural (Gemini) speech is played through Web Audio so its loudness can drive the avatar's
+  // mouth. If the server has no voice configured or fails, the browser's voice takes over.
+  const [mouth, setMouth] = useState(0);
+  const [voiceKind, setVoiceKind] = useState<"natural" | "browser">("browser");
+  const natural = useRef<"unknown" | "on" | "off">("unknown");
+  const playCtx = useRef<AudioContext | null>(null);
+  const playing = useRef<AudioBufferSourceNode | null>(null);
+  const mouthRaf = useRef<number | null>(null);
+  const audioCache = useRef(new Map<string, Promise<ArrayBuffer | null>>());
+
+  const fetchSpeech = useCallback((text: string): Promise<ArrayBuffer | null> => {
+    if (natural.current === "off") return Promise.resolve(null);
+    const hit = audioCache.current.get(text);
+    if (hit) return hit;
+    const p = fetch("/api/tts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) })
+      .then(async (res) => {
+        if (res.status === 503) natural.current = "off";
+        if (!res.ok) return null;
+        natural.current = "on";
+        return res.arrayBuffer();
+      })
+      .catch(() => null);
+    audioCache.current.set(text, p);
+    p.then((b) => {
+      if (!b) audioCache.current.delete(text);
+    });
+    return p;
+  }, []);
+
+  /** Fetches the next line in the background so it starts without a pause. */
+  const prefetch = useCallback((text: string) => void fetchSpeech(text), [fetchSpeech]);
+
+  const stopMouth = () => {
+    if (mouthRaf.current) cancelAnimationFrame(mouthRaf.current);
+    mouthRaf.current = null;
+    setMouth(0);
+  };
+
+  const speakBrowser = useCallback((text: string) => {
     return new Promise<void>((resolve) => {
       if (!("speechSynthesis" in window)) return resolve();
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices();
       u.voice =
-        voices.find((v) => /en[-_](US|GB)/i.test(v.lang) && /natural|neural|google|samantha|daniel/i.test(v.name)) ??
+        voices.find((v) => /en[-_](US|GB|IN)/i.test(v.lang) && /natural|neural|online/i.test(v.name)) ??
+        voices.find((v) => /en[-_](US|GB)/i.test(v.lang) && /google|samantha|daniel/i.test(v.name)) ??
         voices.find((v) => /^en/i.test(v.lang)) ??
         null;
-      u.rate = 1.0;
-      u.pitch = 1.0;
-      u.onend = () => {
+      u.rate = 0.98;
+      // The browser gives no audio level, so the mouth follows word boundaries instead.
+      u.onboundary = () => {
+        setMouth(0.8);
+        setTimeout(() => setMouth(0.25), 120);
+      };
+      const done = () => {
         setSpeaking(false);
+        setMouth(0);
         resolve();
       };
-      u.onerror = () => {
-        setSpeaking(false);
-        resolve();
-      };
+      u.onend = done;
+      u.onerror = done;
+      setVoiceKind("browser");
       setSpeaking(true);
       window.speechSynthesis.speak(u);
     });
   }, []);
 
+  const speak = useCallback(
+    async (text: string) => {
+      // Create or resume the audio context now, while we are still inside the click that asked for speech.
+      if (!playCtx.current) playCtx.current = new AudioContext();
+      void playCtx.current.resume().catch(() => {});
+      playing.current?.stop();
+      if (natural.current !== "off") setSpeaking(true);
+      const bytes = await fetchSpeech(text);
+      const ctx = playCtx.current;
+      if (bytes && ctx) {
+        try {
+          const buffer = await ctx.decodeAudioData(bytes.slice(0));
+          return await new Promise<void>((resolve) => {
+            const src = ctx.createBufferSource();
+            src.buffer = buffer;
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 512;
+            src.connect(analyser);
+            analyser.connect(ctx.destination);
+            const data = new Float32Array(analyser.fftSize);
+            const tick = () => {
+              analyser.getFloatTimeDomainData(data);
+              let s = 0;
+              for (const v of data) s += v * v;
+              setMouth(Math.min(1, Math.sqrt(s / data.length) * 6));
+              mouthRaf.current = requestAnimationFrame(tick);
+            };
+            src.onended = () => {
+              if (playing.current === src) playing.current = null;
+              stopMouth();
+              setSpeaking(false);
+              resolve();
+            };
+            playing.current = src;
+            setVoiceKind("natural");
+            setSpeaking(true);
+            src.start();
+            tick();
+          });
+        } catch {
+          // Undecodable audio: fall through to the browser voice.
+        }
+      }
+      return speakBrowser(text);
+    },
+    [fetchSpeech, speakBrowser],
+  );
+
   const silence = useCallback(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    try {
+      playing.current?.stop();
+    } catch {
+      /* already stopped */
+    }
+    playing.current = null;
+    stopMouth();
     setSpeaking(false);
   }, []);
 
-  return { supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError };
+  return { supported, listening, speaking, finalText, interim, level, error, start, stop, speak, silence, setError, mouth, voiceKind, prefetch, stream: () => stream.current };
 }

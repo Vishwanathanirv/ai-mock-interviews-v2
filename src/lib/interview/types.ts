@@ -1,3 +1,4 @@
+import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 
 export const ROLES = ["frontend", "backend", "fullstack", "devops", "security", "data"] as const;
@@ -49,6 +50,8 @@ export type DeliveryMetrics = {
   voice?: VoiceMetrics;
   /** Words per minute of actual speaking time (pauses excluded), when voice data exists. */
   articulationWpm?: number | null;
+  /** On-camera presence, measured in the browser when the camera was on. */
+  video?: VideoMetrics;
 };
 
 export type ScoreBreakdown = {
@@ -84,6 +87,7 @@ export type FinalReport = {
     totalMinutes: number;
     /** Averages over spoken answers that had voice data. */
     voice?: { answers: number; pitchSdSemitones: number | null; monotoneAnswers: number; pausesPerMinute: number; longestPauseSec: number; pauseRatio: number };
+    video?: { answers: number; eyeContactPct: number; lookAwaysPerAnswer: number; smilePct: number; movement: number; framing: string; lighting: string };
   };
   source: "ai" | "rules";
 };

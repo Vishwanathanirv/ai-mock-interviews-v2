@@ -1,6 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { scoreAnswer } from "./analyzer";
 import { estimateMastery } from "./mastery";
@@ -72,7 +73,7 @@ export async function listInterviews(userId: string) {
 }
 
 /** Grades one answer, stores it, and returns the next question (or null when the interview is over). */
-export async function submitAnswer(userId: string, id: string, answer: string, durationSec: number, voice?: VoiceMetrics) {
+export async function submitAnswer(userId: string, id: string, answer: string, durationSec: number, voice?: VoiceMetrics, video?: VideoMetrics) {
   const db = await getDb();
   const row = await owned(userId, id);
   if (row.status !== "active" || !row.currentQuestion) throw new ConflictError("This interview is already finished.");
@@ -80,7 +81,7 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
   const q = row.currentQuestion;
   const { history } = await historyOf(id);
 
-  const rules = scoreAnswer(q, answer, durationSec, voice);
+  const rules = scoreAnswer(q, answer, durationSec, voice, video);
   let evaluation: AnswerEvaluation = rules;
   let aiFollowUp: string | undefined;
   if (row.provider === "ai" && aiEnabled()) {
