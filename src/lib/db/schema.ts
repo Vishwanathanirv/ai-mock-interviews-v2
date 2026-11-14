@@ -40,6 +40,7 @@ export const interviews = pgTable(
     currentQuestion: jsonb("current_question").$type<import("@/lib/interview/types").AskedQuestion | null>(),
     overallScore: real("overall_score"),
     report: jsonb("report").$type<FinalReport | null>(),
+    targets: jsonb("targets").$type<string[] | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS interviews (
   completed_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS interviews_user_idx ON interviews (user_id, created_at);
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS targets jsonb;
 
 CREATE TABLE IF NOT EXISTS turns (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,3 +1,4 @@
+import type { VoiceMetrics } from "@/lib/voice/prosody";
 import type { AnswerEvaluation, AskedQuestion, Concept, DeliveryMetrics, ScoreBreakdown } from "./types";
 
 const FILLERS = ["um", "uh", "erm", "hmm", "like", "you know", "basically", "actually", "kind of", "sort of", "i mean", "literally"];
@@ -33,7 +34,7 @@ export function conceptHit(norm: string, concept: Concept): boolean {
   });
 }
 
-export function analyzeDelivery(answer: string, durationSec: number): DeliveryMetrics {
+export function analyzeDelivery(answer: string, durationSec: number, voice?: VoiceMetrics): DeliveryMetrics {
   const norm = normalize(answer);
   const words = norm.trim() ? norm.trim().split(" ").length : 0;
   const fillers: Record<string, number> = {};
@@ -60,15 +61,16 @@ export function analyzeDelivery(answer: string, durationSec: number): DeliveryMe
       action: /\b(i (built|wrote|decided|implemented|fixed|created|led|designed|talked|reached|set up|changed|added))\b/i.test(answer),
       result: /\b(result|as a result|outcome|reduced|increased|improved|saved|shipped|launched|delivered|learned)\b/i.test(answer),
     },
+    ...(voice && voice.speakingSec >= 3 ? { voice, articulationWpm: Math.round((words / voice.speakingSec) * 60) } : {}),
   };
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 /** Transparent, rule-based scoring used offline and to ground AI scores with measurable delivery data. */
-export function scoreAnswer(question: AskedQuestion, answer: string, durationSec: number): AnswerEvaluation {
+export function scoreAnswer(question: AskedQuestion, answer: string, durationSec: number, voice?: VoiceMetrics): AnswerEvaluation {
   const norm = normalize(answer);
-  const metrics = analyzeDelivery(answer, durationSec);
+  const metrics = analyzeDelivery(answer, durationSec, voice);
   const covered: string[] = [];
   const missing: string[] = [];
   for (const c of question.concepts) (conceptHit(norm, c) ? covered : missing).push(c[0]);
@@ -98,6 +100,13 @@ export function scoreAnswer(question: AskedQuestion, answer: string, durationSec
   }
   delivery -= Math.min(35, metrics.fillerRate * 500);
   delivery -= Math.min(15, metrics.hedges * 4);
+  // From the audio itself: a flat voice and long silences both read as uncertain.
+  const v = metrics.voice;
+  if (v) {
+    if (v.monotone) delivery -= 8;
+    if (v.longestPauseSec > 3) delivery -= Math.min(10, (v.longestPauseSec - 3) * 3);
+    if (v.pauseRatio > 0.35) delivery -= Math.min(10, (v.pauseRatio - 0.35) * 40);
+  }
   if (metrics.words < 15) delivery = Math.min(delivery, 40);
 
   const breakdown: ScoreBreakdown = { content, depth, structure, delivery: clamp(delivery) };
@@ -119,6 +128,7 @@ function feedback(q: AskedQuestion, m: DeliveryMetrics, b: ScoreBreakdown, cover
   if (m.hasNumbers) strengths.push("Used numbers to make the impact specific.");
   if (q.kind === "behavioral" && Object.values(m.star).every(Boolean)) strengths.push("Clear STAR structure: situation, task, action and result.");
   if (b.delivery >= 85 && m.words >= 30) strengths.push("Confident, fluent delivery with few filler words.");
+  const voiceStrength = m.voice?.monotone === false && (m.voice.pitchSdSemitones ?? 0) >= 2.2 ? "Expressive voice: your pitch rose and fell naturally, which keeps listeners engaged." : null;
 
   if (missing.length) {
     const list = missing.slice(0, 3);
@@ -136,9 +146,15 @@ function feedback(q: AskedQuestion, m: DeliveryMetrics, b: ScoreBreakdown, cover
     const top = Object.entries(m.fillers).sort((a, b) => b[1] - a[1])[0]?.[0];
     improvements.push(`Cut filler words${top ? ` (especially "${top}")` : ""}; a short pause sounds more confident.`);
   }
-  if (m.wpm !== null && m.wpm > 175) improvements.push(`Slow down a little: ${m.wpm} words per minute is fast for an interview.`);
+  const pace = m.articulationWpm ?? m.wpm;
+  if (pace != null && pace > 175) improvements.push(`Slow down a little: ${pace} words per minute${m.articulationWpm ? " of speaking time" : ""} is fast for an interview.`);
   if (m.wpm !== null && m.wpm < 95 && m.words > 20) improvements.push("Keep a steadier pace; long gaps can sound unsure.");
   if (m.hedges >= 2) improvements.push('Fewer hedges like "I think" or "maybe"; state what you know directly.');
+  const fromVoice: string[] = [];
+  if (m.voice?.monotone) fromVoice.push(`Your pitch stayed within about ${m.voice.pitchRangeSemitones} semitones, which can sound flat. Lift your voice on the key result and slow down on numbers.`);
+  if (m.voice && m.voice.longestPauseSec > 3) fromVoice.push(`One pause lasted ${m.voice.longestPauseSec} s. If you need time, say "Let me think about that for a second" instead of going silent.`);
   if (!strengths.length) strengths.push("Stayed on the question and gave an answer to build on.");
-  return { strengths: strengths.slice(0, 3), improvements: improvements.slice(0, 3) };
+  // What the microphone heard gets one of the three slots, so it is never crowded out.
+  const strengthsOut = voiceStrength ? [...strengths.slice(0, 2), voiceStrength] : strengths.slice(0, 3);
+  return { strengths: strengthsOut, improvements: [...improvements.slice(0, fromVoice.length ? 2 : 3), ...fromVoice.slice(0, 1)] };
 }

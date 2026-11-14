@@ -12,6 +12,6 @@ export const POST = handle(async (req: Request, { params }: Ctx) => {
   const s = await requireUser();
   if (!rateLimit(`answer:${s.sub}`, 30, 60_000)) throw new HttpError(429, "Slow down a little and try again.");
   const { id } = await params;
-  const { answer, durationSec } = await body(req, AnswerInput);
-  return NextResponse.json(await submitAnswer(s.sub, id, answer, durationSec));
+  const { answer, durationSec, voice } = await body(req, AnswerInput);
+  return NextResponse.json(await submitAnswer(s.sub, id, answer, durationSec, voice));
 });

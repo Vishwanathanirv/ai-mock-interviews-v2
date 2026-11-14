@@ -1,3 +1,5 @@
+import type { VoiceMetrics } from "@/lib/voice/prosody";
+
 export const ROLES = ["frontend", "backend", "fullstack", "devops", "security", "data"] as const;
 export const LEVELS = ["intern", "junior", "mid", "senior"] as const;
 export const FOCUSES = ["technical", "behavioral", "mixed"] as const;
@@ -43,6 +45,10 @@ export type DeliveryMetrics = {
   hasNumbers: boolean;
   hasExample: boolean;
   star: { situation: boolean; task: boolean; action: boolean; result: boolean };
+  /** Measured from the microphone signal when the answer was spoken. */
+  voice?: VoiceMetrics;
+  /** Words per minute of actual speaking time (pauses excluded), when voice data exists. */
+  articulationWpm?: number | null;
 };
 
 export type ScoreBreakdown = {
@@ -71,11 +77,25 @@ export type FinalReport = {
   strengths: string[];
   improvements: string[];
   studyTopics: string[];
-  delivery: { avgWpm: number | null; fillerRate: number; totalWords: number; totalMinutes: number };
+  delivery: {
+    avgWpm: number | null;
+    fillerRate: number;
+    totalWords: number;
+    totalMinutes: number;
+    /** Averages over spoken answers that had voice data. */
+    voice?: { answers: number; pitchSdSemitones: number | null; monotoneAnswers: number; pausesPerMinute: number; longestPauseSec: number; pauseRatio: number };
+  };
   source: "ai" | "rules";
 };
 
-export type InterviewConfig = { role: Role; level: Level; focus: Focus; totalQuestions: number };
+export type InterviewConfig = {
+  role: Role;
+  level: Level;
+  focus: Focus;
+  totalQuestions: number;
+  /** Topics to concentrate on (from the practice plan); questions come from these when possible. */
+  targets?: string[];
+};
 
 export type HistoryItem = { question: AskedQuestion; answer: string; evaluation: AnswerEvaluation };
 

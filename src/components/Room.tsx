@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnswerEvaluation, AskedQuestion } from "@/lib/interview/types";
+import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { ScorePill } from "./ScoreRing";
 import { useVoice } from "./useVoice";
 
@@ -67,6 +68,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
   const [error, setError] = useState<string | null>(null);
   const startedAt = useRef<number>(0);
   const spokenSec = useRef(0);
+  const voiceMetrics = useRef<VoiceMetrics | null>(null);
 
   const sttOk = voice.supported?.stt ?? false;
   const useTyping = typing || (voice.supported !== null && !sttOk);
@@ -101,7 +103,8 @@ export function Room({ id, title, provider, total, answered, question: initial }
   }
 
   function stopAnswer() {
-    const text = voice.stop();
+    const { text, voice: measured } = voice.stop();
+    voiceMetrics.current = measured;
     spokenSec.current = (Date.now() - startedAt.current) / 1000;
     setDraft(text);
     setPhase("review");
@@ -118,7 +121,7 @@ export function Room({ id, title, provider, total, answered, question: initial }
     const res = await fetch(`/api/interviews/${id}/answer`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ answer, durationSec: Math.round(durationSec * 10) / 10 }),
+      body: JSON.stringify({ answer, durationSec: Math.round(durationSec * 10) / 10, ...(!useTyping && voiceMetrics.current ? { voice: voiceMetrics.current } : {}) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -310,6 +313,8 @@ export function Room({ id, title, provider, total, answered, question: initial }
               <span className="text-xs text-faint">
                 {feedback.metrics.words} words{feedback.metrics.wpm ? ` · ${feedback.metrics.wpm} wpm` : ""}
                 {feedback.metrics.fillerCount ? ` · ${feedback.metrics.fillerCount} fillers` : ""}
+                {feedback.metrics.voice?.pitchSdSemitones != null ? ` · pitch varied ${feedback.metrics.voice.pitchSdSemitones} st${feedback.metrics.voice.monotone ? " (flat)" : ""}` : ""}
+                {feedback.metrics.voice ? ` · ${feedback.metrics.voice.pauses} pause${feedback.metrics.voice.pauses === 1 ? "" : "s"}` : ""}
               </span>
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">

@@ -65,7 +65,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               <Bar label="delivery" value={report.breakdown.delivery} />
             </div>
             <p className="mt-5 text-xs text-faint">
-              {report.source === "ai" ? "Content graded by Gemini. " : "Graded with rule-based scoring. "}Pace and filler words are measured from your answers.
+              {report.source === "ai" ? "Content graded by Gemini. " : "Graded with rule-based scoring. "}Pace, filler words, pitch and pauses are measured from your answers.
             </p>
           </div>
         </section>
@@ -87,6 +87,32 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
             <div className="mt-1 text-xs text-faint">{report.delivery.totalMinutes ? `About ${report.delivery.totalMinutes} min of speaking` : "Across all answers"}</div>
           </div>
         </section>
+
+        {report.delivery.voice && (
+          <section className="mt-4 card p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="font-medium">Your voice</h2>
+              <span className="text-xs text-faint">Measured from the microphone signal in your browser, across {report.delivery.voice.answers} spoken answer{report.delivery.voice.answers === 1 ? "" : "s"}. No audio was stored.</span>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div>
+                <div className="text-sm text-muted">Pitch variety</div>
+                <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.voice.pitchSdSemitones != null ? `${report.delivery.voice.pitchSdSemitones} st` : "–"}</div>
+                <div className="mt-1 text-xs text-faint">{report.delivery.voice.monotoneAnswers ? `${report.delivery.voice.monotoneAnswers} answer${report.delivery.voice.monotoneAnswers === 1 ? "" : "s"} sounded flat (under 1.6 st)` : "Natural rise and fall: 2 st or more"}</div>
+              </div>
+              <div>
+                <div className="text-sm text-muted">Pauses</div>
+                <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.voice.pausesPerMinute}/min</div>
+                <div className="mt-1 text-xs text-faint">Longest {report.delivery.voice.longestPauseSec} s; short pauses help, long ones read as stuck</div>
+              </div>
+              <div>
+                <div className="text-sm text-muted">Silent time</div>
+                <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{Math.round(report.delivery.voice.pauseRatio * 100)}%</div>
+                <div className="mt-1 text-xs text-faint">Of each answer, between your first and last word</div>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="card p-6">

@@ -12,13 +12,20 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 
 - **Voice first, no paid voice API.** Speech recognition and the interviewer's voice run in the browser (Web Speech API). Audio never leaves your device; only the final text is sent. Typing works everywhere as a fallback.
 - **Adaptive interviewer.** Difficulty moves up after strong answers and down after weak ones. If you miss a key concept, the interviewer probes it with a follow-up, as a real one would.
-- **Measured, not guessed, delivery.** Speaking pace (words per minute), filler words ("um", "basically", "like" as a filler but not as a verb) and hedging are computed from your answer.
+- **Measured, not guessed, delivery.** Speaking pace, filler words ("um", "basically", "like" as a filler but not as a verb) and hedging are computed from your answer.
+- **Voice analytics from the audio itself.** While you answer, the browser analyses the raw microphone signal (an AudioWorklet feeds every sample, gap-free, to a from-scratch DSP pipeline):
+  - **pitch** with the YIN estimator (de Cheveigné & Kawahara, 2002), summarised as variety in semitones, so a flat, monotone answer is flagged with a concrete tip;
+  - **pauses** from voice-activity detection with an adaptive noise floor: how many, how long, and the share of silent time, so pace is computed from real speaking time;
+  - **loudness steadiness** in dB.
+
+  Validated against Praat (the phonetics standard) on synthesised speech: median pitch within 1 Hz and pitch variety within 0.1 semitones for male and female voices, with inserted 2.2 s pauses measured as 2.3 s. Only the summary numbers are sent; no audio leaves the device.
+- **A skill map that learns.** Every answer updates a Bayesian estimate of how well you know each topic (a Beta posterior, with harder questions counting for more and old answers fading over a 30-day half-life). The dashboard shows each topic with an uncertainty band, so one lucky answer never marks a topic as mastered. A spaced-practice schedule brings weak topics back after a day and strong ones after ten, and **"Practise my weak spots"** starts a session aimed straight at them.
 - **STAR coaching** for behavioural questions: situation, task, action and result are checked, and missing parts are named.
 - **Two grading engines behind one interface.**
   - *Rules*: transparent, deterministic scoring that works with zero configuration.
   - *AI (Gemini)*: grades content, depth and structure with a JSON schema and validates the response with Zod. Delivery stays measured. If the AI call fails or times out, it falls back to the rules engine, so a session never breaks.
 - **6 roles × 4 levels × 3 interview types**, with 36 technical and 8 behavioural questions, each with key concepts, synonyms and a follow-up.
-- **Progress tracking.** A dashboard with history, average and best scores, and a trend chart. Every answer can be revisited in its report, and reports can be saved as PDF.
+- **Progress tracking.** A dashboard with the skill map, history, average and best scores, and a trend chart. Every answer can be revisited in its report, and reports can be saved as PDF.
 - **Secure by default.**
   - scrypt password hashing and signed http-only session cookies (HS256 JWT)
   - per-IP and per-account rate limits, and timing-safe login (no user enumeration)
@@ -112,9 +119,9 @@ Voice answers work in Chrome and Edge. Other browsers use the typing mode automa
 
 ```bash
 npm run lint && npm run typecheck
-npm test            # 19 unit tests (Vitest)
+npm test            # 46 unit tests (Vitest), including the DSP and the mastery model
 npm run build
-npm run test:e2e    # 4 end-to-end tests (Playwright)
+npm run test:e2e    # 5 end-to-end tests (Playwright); one feeds generated speech through a fake microphone
 ```
 
 GitHub Actions runs all of these on every push.

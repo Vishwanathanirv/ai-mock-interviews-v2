@@ -1,7 +1,9 @@
 import "server-only";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { scoreAnswer } from "./analyzer";
+import { estimateMastery } from "./mastery";
 import { findQuestion } from "./bank";
 import { aiEnabled, evaluateWithAI, summarizeWithAI } from "./gemini";
 import { buildReport, firstQuestion, pickNext } from "./planner";
@@ -15,6 +17,7 @@ const configOf = (i: schema.Interview): InterviewConfig => ({
   level: i.level as Level,
   focus: i.focus as Focus,
   totalQuestions: i.totalQuestions,
+  ...(i.targets?.length ? { targets: i.targets } : {}),
 });
 
 async function owned(userId: string, id: string) {
@@ -50,7 +53,7 @@ export async function createInterview(userId: string, cfg: InterviewConfig) {
   const provider = aiEnabled() ? "ai" : "rules";
   const [row] = await db
     .insert(schema.interviews)
-    .values({ userId, ...cfg, provider, currentQuestion: null })
+    .values({ userId, ...cfg, targets: cfg.targets?.length ? cfg.targets : null, provider, currentQuestion: null })
     .returning();
   const q = firstQuestion(cfg, row.id);
   await db.update(schema.interviews).set({ currentQuestion: q }).where(eq(schema.interviews.id, row.id));
@@ -69,7 +72,7 @@ export async function listInterviews(userId: string) {
 }
 
 /** Grades one answer, stores it, and returns the next question (or null when the interview is over). */
-export async function submitAnswer(userId: string, id: string, answer: string, durationSec: number) {
+export async function submitAnswer(userId: string, id: string, answer: string, durationSec: number, voice?: VoiceMetrics) {
   const db = await getDb();
   const row = await owned(userId, id);
   if (row.status !== "active" || !row.currentQuestion) throw new ConflictError("This interview is already finished.");
@@ -77,7 +80,7 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
   const q = row.currentQuestion;
   const { history } = await historyOf(id);
 
-  const rules = scoreAnswer(q, answer, durationSec);
+  const rules = scoreAnswer(q, answer, durationSec, voice);
   let evaluation: AnswerEvaluation = rules;
   let aiFollowUp: string | undefined;
   if (row.provider === "ai" && aiEnabled()) {
@@ -86,7 +89,8 @@ export async function submitAnswer(userId: string, id: string, answer: string, d
       aiFollowUp = ai.followUp;
       const { followUp: _omit, ...rest } = ai;
       void _omit;
-      evaluation = rest;
+      // Measurements always come from the analyser, whoever does the grading.
+      evaluation = { ...rest, metrics: rules.metrics };
     } catch (err) {
       console.warn("[ai] evaluation failed, using rule-based scoring:", (err as Error).message);
     }
@@ -143,4 +147,17 @@ export async function deleteInterview(userId: string, id: string) {
   const db = await getDb();
   await owned(userId, id);
   await db.delete(schema.interviews).where(eq(schema.interviews.id, id));
+}
+
+/** Every answer this user has given, as evidence for the mastery model. */
+export async function getMastery(userId: string) {
+  const db = await getDb();
+  const rows = await db
+    .select({ questionId: schema.turns.questionId, evaluation: schema.turns.evaluation, at: schema.turns.createdAt })
+    .from(schema.turns)
+    .innerJoin(schema.interviews, eq(schema.turns.interviewId, schema.interviews.id))
+    .where(eq(schema.interviews.userId, userId));
+  const evidence = rows.map((r) => ({ questionId: r.questionId, score: r.evaluation.score, at: new Date(r.at).getTime() }));
+  const topics = estimateMastery(evidence);
+  return { topics, answers: evidence.length };
 }

@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CAPTURE_WORKLET } from "@/lib/voice/capture";
+import { ProsodyTracker, type VoiceMetrics } from "@/lib/voice/prosody";
+
+
 
 type RecognitionResult = { isFinal: boolean; 0: { transcript: string } };
 type RecognitionEvent = { resultIndex: number; results: ArrayLike<RecognitionResult> };
@@ -23,8 +27,9 @@ function getRecognitionCtor(): (new () => Recognition) | null {
 }
 
 /**
- * Browser-native speech: recognition for the candidate, synthesis for the interviewer,
- * and a live microphone level for the visualiser. Nothing is uploaded; only the final text is sent.
+ * Browser-native speech: recognition for the candidate, synthesis for the interviewer, a live
+ * microphone level for the visualiser, and voice analytics (pitch, pauses, loudness) computed
+ * from the raw samples. No audio is uploaded; only the final text and summary numbers are sent.
  */
 export function useVoice() {
   const [supported, setSupported] = useState<{ stt: boolean; tts: boolean } | null>(null);
@@ -42,6 +47,8 @@ export function useVoice() {
   const stream = useRef<MediaStream | null>(null);
   const raf = useRef<number | null>(null);
   const ctx = useRef<AudioContext | null>(null);
+  const tracker = useRef<ProsodyTracker | null>(null);
+  const node = useRef<AudioNode | null>(null);
 
   useEffect(() => {
     setSupported({ stt: Boolean(getRecognitionCtor()), tts: typeof window !== "undefined" && "speechSynthesis" in window });
@@ -56,6 +63,8 @@ export function useVoice() {
   function stopMeter() {
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = null;
+    node.current?.disconnect();
+    node.current = null;
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
     void ctx.current?.close().catch(() => {});
@@ -65,20 +74,34 @@ export function useVoice() {
 
   async function startMeter() {
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      // Noise suppression and auto gain flatten pitch and loudness, so they stay off for analysis.
+      stream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
       ctx.current = new AudioContext();
-      const analyser = ctx.current.createAnalyser();
-      analyser.fftSize = 512;
-      ctx.current.createMediaStreamSource(stream.current).connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-      const tick = () => {
-        analyser.getByteTimeDomainData(buf);
+      const source = ctx.current.createMediaStreamSource(stream.current);
+      const t = new ProsodyTracker(ctx.current.sampleRate);
+      tracker.current = t;
+      const onBlock = (block: Float32Array) => {
+        t.push(block);
         let sum = 0;
-        for (const v of buf) sum += ((v - 128) / 128) ** 2;
-        setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 4));
-        raf.current = requestAnimationFrame(tick);
+        for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
+        setLevel(Math.min(1, Math.sqrt(sum / block.length) * 4));
       };
-      tick();
+      if (ctx.current.audioWorklet) {
+        const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
+        await ctx.current.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        const w = new AudioWorkletNode(ctx.current, "mv-capture");
+        w.port.onmessage = (e: MessageEvent<Float32Array>) => onBlock(e.data);
+        source.connect(w);
+        node.current = w;
+      } else {
+        // Older browsers: ScriptProcessor delivers the same contiguous blocks.
+        const sp = ctx.current.createScriptProcessor(2048, 1, 1);
+        sp.onaudioprocess = (e) => onBlock(new Float32Array(e.inputBuffer.getChannelData(0)));
+        source.connect(sp);
+        sp.connect(ctx.current.destination);
+        node.current = sp;
+      }
       return true;
     } catch {
       setError("Microphone access was blocked. Allow it in the address bar, or type your answers instead.");
@@ -133,7 +156,7 @@ export function useVoice() {
     return true;
   }, []);
 
-  const stop = useCallback((): string => {
+  const stop = useCallback((): { text: string; voice: VoiceMetrics | null } => {
     wantListening.current = false;
     rec.current?.stop();
     stopMeter();
@@ -141,7 +164,9 @@ export function useVoice() {
     const text = `${finalRef.current} ${interimRef.current}`.trim();
     interimRef.current = "";
     setInterim("");
-    return text;
+    const voice = tracker.current?.summary() ?? null;
+    tracker.current = null;
+    return { text, voice: voice && voice.speakingSec >= 3 ? voice : null };
   }, []);
 
   const speak = useCallback((text: string) => {

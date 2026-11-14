@@ -41,6 +41,15 @@ test("guest can complete a full interview and see a report", async ({ page }) =>
   await page.goto("/dashboard");
   await expect(page.getByText("Interviews completed")).toBeVisible();
   await expect(page.getByRole("link", { name: /Backend Developer/ })).toBeVisible();
+
+  // The skill map estimates each topic from the answers, and offers a targeted session.
+  await expect(page.getByRole("heading", { name: "Skill map" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /about \d+%, likely between \d+ and \d+/ }).first()).toBeVisible();
+  const practise = page.getByRole("button", { name: "Practise my weak spots" });
+  if (await practise.isVisible()) {
+    await practise.click();
+    await expect(page).toHaveURL(/\/interview\/[0-9a-f-]{36}$/);
+  }
 });
 
 test("protected pages redirect to sign in, and accounts work end to end", async ({ page }) => {

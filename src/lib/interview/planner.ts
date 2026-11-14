@@ -47,7 +47,8 @@ export function targetDifficulty(cfg: InterviewConfig, history: HistoryItem[]): 
 }
 
 export function firstQuestion(cfg: InterviewConfig, seed: string): AskedQuestion {
-  if (cfg.focus !== "technical") return toAsked(BEHAVIORAL[0]);
+  // A targeted session goes straight to the weak topics; otherwise warm up with an introduction.
+  if (cfg.focus !== "technical" && !cfg.targets?.length) return toAsked(BEHAVIORAL[0]);
   return pickNext(cfg, [], seed)!;
 }
 
@@ -65,19 +66,28 @@ export function pickNext(cfg: InterviewConfig, history: HistoryItem[], seed: str
     }
   }
   const asked = new Set(history.map((h) => h.question.parentId ?? h.question.id));
-  let pool = poolFor(cfg.role, cfg.focus).filter((b) => !asked.has(b.id));
+  let pool = poolFor(cfg.role, cfg.targets?.length ? "mixed" : cfg.focus).filter((b) => !asked.has(b.id));
+  if (cfg.targets?.length) {
+    // Practice-plan sessions draw from the target topics first, and only then from the rest.
+    const wanted = new Set(cfg.targets);
+    const targeted = pool.filter((b) => wanted.has(b.topic));
+    if (targeted.length) return toAsked(rankByDifficulty(cfg, history, targeted, seed));
+    pool = poolFor(cfg.role, cfg.focus).filter((b) => !asked.has(b.id));
+  }
   if (cfg.focus === "mixed" && last) {
     const wantKind = last.question.kind === "technical" ? "behavioral" : "technical";
     const sameKind = pool.filter((b) => b.kind === wantKind);
     if (sameKind.length) pool = sameKind;
   }
   if (!pool.length) return null;
+  return toAsked(rankByDifficulty(cfg, history, pool, seed));
+}
+
+/** The question nearest the adaptive difficulty, with a little seeded randomness to vary sessions. */
+function rankByDifficulty(cfg: InterviewConfig, history: HistoryItem[], pool: BankQuestion[], seed: string): BankQuestion {
   const target = targetDifficulty(cfg, history);
   const rand = seeded(`${seed}:${history.length}`);
-  const ranked = pool
-    .map((b) => ({ b, d: Math.abs(b.difficulty - target) + rand() * 0.6 }))
-    .sort((a, b) => a.d - b.d);
-  return toAsked(ranked[0].b);
+  return pool.map((b) => ({ b, d: Math.abs(b.difficulty - target) + rand() * 0.6 })).sort((a, b) => a.d - b.d)[0].b;
 }
 
 function shouldProbe(e: AnswerEvaluation): boolean {
@@ -123,7 +133,25 @@ export function buildReport(cfg: InterviewConfig, history: HistoryItem[], source
     strengths: tally(evals.flatMap((e) => e.strengths)).slice(0, 4),
     improvements: tally(evals.flatMap((e) => e.improvements)).slice(0, 4),
     studyTopics: missingTopics.slice(0, 6),
-    delivery: { avgWpm: wpms.length ? Math.round(avg(wpms)) : null, fillerRate: words ? +(fillers / words).toFixed(3) : 0, totalWords: words, totalMinutes: minutes },
+    delivery: { avgWpm: wpms.length ? Math.round(avg(wpms)) : null, fillerRate: words ? +(fillers / words).toFixed(3) : 0, totalWords: words, totalMinutes: minutes, ...voiceSummary(evals) },
     source,
+  };
+}
+
+/** Voice measurements across the spoken answers of an interview. */
+function voiceSummary(evals: AnswerEvaluation[]): { voice?: FinalReport["delivery"]["voice"] } {
+  const vs = evals.map((e) => e.metrics.voice).filter((v): v is NonNullable<typeof v> => Boolean(v));
+  if (!vs.length) return {};
+  const sds = vs.map((v) => v.pitchSdSemitones).filter((x): x is number => x !== null);
+  const speakingMin = vs.reduce((a, v) => a + v.durationSec, 0) / 60;
+  return {
+    voice: {
+      answers: vs.length,
+      pitchSdSemitones: sds.length ? +avg(sds).toFixed(2) : null,
+      monotoneAnswers: vs.filter((v) => v.monotone).length,
+      pausesPerMinute: speakingMin ? +(vs.reduce((a, v) => a + v.pauses, 0) / speakingMin).toFixed(1) : 0,
+      longestPauseSec: Math.max(...vs.map((v) => v.longestPauseSec)),
+      pauseRatio: +avg(vs.map((v) => v.pauseRatio)).toFixed(2),
+    },
   };
 }

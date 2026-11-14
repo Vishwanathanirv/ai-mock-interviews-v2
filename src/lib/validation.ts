@@ -17,9 +17,29 @@ export const NewInterviewInput = z.object({
   level: z.enum(LEVELS),
   focus: z.enum(FOCUSES),
   totalQuestions: z.number().int().min(3).max(10),
+  targets: z.array(z.string().trim().min(1).max(60)).max(6).optional(),
+});
+
+const n = (max: number) => z.number().finite().min(0).max(max);
+const nn = (max: number) => n(max).nullable();
+
+/** Summary numbers from the in-browser voice analysis; never raw audio. */
+export const VoiceInput = z.object({
+  durationSec: n(1800),
+  speakingSec: n(1800),
+  pauses: z.number().int().min(0).max(2000),
+  longestPauseSec: n(1800),
+  pauseRatio: n(1),
+  pitchMedianHz: nn(1000),
+  pitchSdSemitones: nn(48),
+  pitchRangeSemitones: nn(96),
+  monotone: z.boolean().nullable(),
+  loudnessSdDb: nn(120),
+  voicedFrames: z.number().int().min(0).max(1_000_000),
 });
 
 export const AnswerInput = z.object({
   answer: z.string().trim().min(1, "Say or type an answer first").max(6000),
   durationSec: z.number().min(0).max(1800),
+  voice: VoiceInput.optional(),
 });
