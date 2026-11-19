@@ -2,6 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { isUuid } from "@/lib/request-guard";
 import type { VideoMetrics } from "@/lib/video/analysis";
 import type { VoiceMetrics } from "@/lib/voice/prosody";
 import { scoreAnswer } from "./analyzer";
@@ -24,6 +25,7 @@ const configOf = (i: schema.Interview): InterviewConfig => ({
 });
 
 async function owned(userId: string, id: string) {
+  if (!isUuid(id)) throw new NotFoundError("Interview not found");
   const db = await getDb();
   const [row] = await db.select().from(schema.interviews).where(and(eq(schema.interviews.id, id), eq(schema.interviews.userId, userId)));
   if (!row) throw new NotFoundError("Interview not found");
