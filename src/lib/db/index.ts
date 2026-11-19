@@ -12,7 +12,14 @@ const g = globalThis as unknown as { __db?: Promise<Db> };
  * otherwise an embedded Postgres (PGlite) stored in ./.data so the app runs with zero setup.
  */
 export function getDb(): Promise<Db> {
-  if (!g.__db) g.__db = init();
+  if (!g.__db) {
+    // A failed start (database briefly unreachable, cold Neon branch) must not be cached, or every
+    // later request fails until the server restarts. Forget it so the next request tries again.
+    g.__db = init().catch((err) => {
+      g.__db = undefined;
+      throw err;
+    });
+  }
   return g.__db;
 }
 
