@@ -27,6 +27,9 @@ test("guest can complete a full interview by voice and see a report", async ({ p
   await expect(page.getByText("Interview report")).toBeVisible();
   await expect(page.getByText("Answer by answer")).toBeVisible();
   await expect(page.getByRole("img", { name: /Overall score \d+ out of 100/ })).toBeVisible();
+  // Delivery is shown as readings on rulers with the target band, not stat cards.
+  await expect(page.getByRole("heading", { name: "Readings" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^Filler words: [\d.]+%, target 0 to 2%, (within|outside) the target$/ })).toBeVisible();
 
   await page.goto("/dashboard");
   await expect(page.getByText("Interviews completed")).toBeVisible();

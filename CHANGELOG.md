@@ -16,4 +16,5 @@ All notable changes to this project. Dates are UTC.
 
 ### Changed
 - The dashboard is now the notebook's **practice log**: scores plotted against each interview's hiring bar, the skill map as measurements with error whiskers, and sessions as ruled entries. Sign-in, sign-up, setup, report and 404 pages share the same graph paper.
+- The report shows delivery as readings on rulers with the target band marked, and its notes as ticks, pencil marks and a study checklist instead of three cards.
 - CI audits production dependencies, runs with a read-only token, and cancels superseded runs.

@@ -1,3 +1,4 @@
+import { Ruler } from "@/components/log/Ruler";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
@@ -109,28 +110,27 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </section>
         )}
 
-        <section className="mt-4 grid gap-4 md:grid-cols-3">
-          <div className="card p-5">
-            <div className="text-sm text-muted">Speaking pace</div>
-            <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.avgWpm ? `${report.delivery.avgWpm} wpm` : "–"}</div>
-            <div className="mt-1 text-xs text-faint">Aim for 120 to 160</div>
-          </div>
-          <div className="card p-5">
-            <div className="text-sm text-muted">Filler words</div>
-            <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{(report.delivery.fillerRate * 100).toFixed(1)}%</div>
-            <div className="mt-1 text-xs text-faint">Under 2% sounds confident</div>
-          </div>
-          <div className="card p-5">
-            <div className="text-sm text-muted">Words spoken</div>
-            <div className="mt-1 font-display text-2xl font-semibold tabular-nums">{report.delivery.totalWords}</div>
-            <div className="mt-1 text-xs text-faint">{report.delivery.totalMinutes ? `About ${report.delivery.totalMinutes} min of speaking` : "Across all answers"}</div>
+        <section aria-labelledby="readings" className="mt-10">
+          <h2 id="readings" className="border-b-[1.5px] border-pen/70 pb-2 font-display text-xl font-semibold tracking-tight">
+            Readings
+          </h2>
+          <div className="mt-5 grid gap-8 md:grid-cols-3">
+            <Ruler label="Speaking pace" value={report.delivery.avgWpm || null} unit=" wpm" min={0} max={220} band={[120, 160]} note="Target band 120 to 160 words a minute." />
+            <Ruler label="Filler words" value={+(report.delivery.fillerRate * 100).toFixed(1)} unit="%" min={0} max={10} band={[0, 2]} note="Under 2% sounds confident." />
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm text-muted">Words spoken</span>
+                <span className="font-mono text-xl font-semibold tabular-nums text-pen">{report.delivery.totalWords}</span>
+              </div>
+              <p className="mt-3 text-xs text-muted">{report.delivery.totalMinutes ? `About ${report.delivery.totalMinutes} min of speaking.` : "Across all answers."}</p>
+            </div>
           </div>
         </section>
 
         {report.delivery.video && (
-          <section className="mt-4 card p-5">
+          <section className="mt-10 border-t-[1.5px] border-pen/70 pt-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-medium">On camera</h2>
+              <h2 className="font-display text-lg font-semibold">On camera</h2>
               <span className="text-xs text-faint">Measured with face tracking in your browser, across {report.delivery.video.answers} answer{report.delivery.video.answers === 1 ? "" : "s"}. No video was uploaded or stored.</span>
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-4">
@@ -159,9 +159,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         )}
 
         {report.delivery.voice && (
-          <section className="mt-4 card p-5">
+          <section className="mt-10 border-t-[1.5px] border-pen/70 pt-5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-medium">Your voice</h2>
+              <h2 className="font-display text-lg font-semibold">Your voice</h2>
               <span className="text-xs text-faint">Measured from the microphone signal in your browser, across {report.delivery.voice.answers} spoken answer{report.delivery.voice.answers === 1 ? "" : "s"}. No audio was stored.</span>
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -184,35 +184,36 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </section>
         )}
 
-        <section className="mt-4 grid gap-4 md:grid-cols-3">
-          <div className="card p-6">
-            <h2 className="font-medium text-good">What worked</h2>
+        <section aria-label="Notes" className="mt-10 grid gap-8 border-t-[1.5px] border-pen/70 pt-6 md:grid-cols-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-pen">What worked</h2>
             <ul className="mt-3 space-y-2.5 text-[0.95rem] leading-relaxed">
               {report.strengths.map((x) => (
                 <li key={x} className="flex gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-good" />
+                  <span aria-hidden="true" className="flex-none font-mono text-pen">✓</span>
                   {x}
                 </li>
               ))}
             </ul>
           </div>
-          <div className="card p-6">
-            <h2 className="font-medium text-warn">Work on next</h2>
+          <div>
+            <h2 className="font-display text-lg font-semibold text-pencil">Work on next</h2>
             <ul className="mt-3 space-y-2.5 text-[0.95rem] leading-relaxed">
               {report.improvements.map((x) => (
                 <li key={x} className="flex gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-warn" />
+                  <span aria-hidden="true" className="flex-none font-mono text-pencil">✎</span>
                   {x}
                 </li>
               ))}
             </ul>
           </div>
-          <div className="card p-6">
-            <h2 className="font-medium">Study list</h2>
+          <div>
+            <h2 className="font-display text-lg font-semibold">Study list</h2>
             {report.studyTopics.length ? (
-              <ul className="mt-3 flex flex-wrap gap-2">
+              <ul className="mt-3 space-y-2 text-[0.95rem]">
                 {report.studyTopics.map((t) => (
-                  <li key={t} className="rounded-full border border-line bg-surface-2 px-3 py-1 text-sm">
+                  <li key={t} className="flex gap-2.5">
+                    <span aria-hidden="true" className="mt-1 size-3.5 flex-none border-[1.5px] border-pen" />
                     {t}
                   </li>
                 ))}
