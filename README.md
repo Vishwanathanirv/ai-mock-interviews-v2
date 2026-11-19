@@ -70,9 +70,11 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
 | --- | --- |
 | ![Interview room](docs/screenshots/room.png) | ![Feedback after an answer](docs/screenshots/feedback.png) |
 
-| Report | Dashboard |
+| Report | Practice log |
 | --- | --- |
-| ![Report](docs/screenshots/report.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+| ![Report](docs/screenshots/report.png) | ![Practice log](docs/screenshots/dashboard.png) |
+
+Report and practice log screenshots use synthetic answers typed in by a test script, not a real candidate.
 
 ## Architecture
 
