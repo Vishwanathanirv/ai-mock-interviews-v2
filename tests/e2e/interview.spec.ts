@@ -30,7 +30,11 @@ test("guest can complete a full interview by voice and see a report", async ({ p
 
   await page.goto("/dashboard");
   await expect(page.getByText("Interviews completed")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Backend Developer/ })).toBeVisible();
+  // The practice log plots the interview as a point against the hiring bar, linked to its report,
+  // and lists it as a ruled entry.
+  await expect(page.getByRole("link", { name: /^Backend Developer, Junior, .*: \d+ against a bar of 60\. Open the report\.$/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Backend Developer Junior/ })).toBeVisible();
+  await expect(page.getByRole("group", { name: /cleared the hiring bar for their level/ })).toBeVisible();
 
   // The skill map estimates each topic from the answers, and offers a targeted session.
   await expect(page.getByRole("heading", { name: "Skill map" })).toBeVisible();

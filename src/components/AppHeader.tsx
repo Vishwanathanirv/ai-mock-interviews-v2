@@ -13,7 +13,7 @@ export async function AppHeader() {
           {s ? (
             <>
               <Link href="/dashboard" className="hidden rounded-full px-3 py-2 text-muted hover:text-ink sm:inline">
-                Dashboard
+                Practice log
               </Link>
               <Link href="/interview/new" className="btn btn-primary h-9 px-4 text-sm">
                 New interview

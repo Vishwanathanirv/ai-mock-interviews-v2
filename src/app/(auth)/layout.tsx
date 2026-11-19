@@ -2,7 +2,7 @@ import { Logo } from "@/components/Logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="sheet graph-paper flex min-h-dvh flex-col">
       <div className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-6">
         <Logo />
       </div>

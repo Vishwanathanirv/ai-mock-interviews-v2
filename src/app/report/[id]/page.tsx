@@ -36,7 +36,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const verdictTone = report.verdict === "Strong" ? "bg-good-soft text-good" : report.verdict === "Promising" ? "bg-warn-soft text-warn" : "bg-bad-soft text-bad";
 
   return (
-    <>
+    <div className="sheet graph-paper min-h-dvh">
       <AppHeader />
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -296,6 +296,6 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           </div>
         </section>
       </main>
-    </>
+    </div>
   );
 }

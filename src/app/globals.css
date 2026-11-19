@@ -214,3 +214,51 @@ body {
 .pen-range {
   accent-color: var(--pen);
 }
+
+/*
+ * The whole product is one lab notebook: graph paper by day, blueprint by night, ink for what was
+ * measured and red pencil for what needs attention. `.sheet` turns any page into that paper and
+ * re-points the accent at the pen, so buttons and focus rings are drawn in the same ink.
+ */
+.sheet {
+  --bg: var(--paper);
+  --accent: var(--pen);
+  --accent-ink: var(--paper);
+  --surface: color-mix(in oklab, var(--paper) 82%, white);
+  --line: color-mix(in oklab, var(--pen) 22%, var(--paper));
+  --ring: color-mix(in oklab, var(--pen) 40%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sheet {
+    --surface: color-mix(in oklab, var(--paper) 88%, black);
+  }
+}
+.sheet .card {
+  border-radius: 0.35rem;
+  border-color: color-mix(in oklab, var(--pen) 30%, var(--paper));
+  box-shadow: 3px 3px 0 color-mix(in oklab, var(--pen) 12%, transparent);
+}
+/* A note written in the margin in red pencil. */
+.pencil-note {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--pencil);
+}
+/* Ruled entries in the log, like lines in a notebook. */
+.ruled > li + li {
+  border-top: 1px dashed color-mix(in oklab, var(--pen) 30%, var(--paper));
+}
+/* Fields are lines on the page you write on, not boxes. */
+.sheet .input {
+  border-radius: 0;
+  border-width: 0 0 1.5px;
+  border-color: color-mix(in oklab, var(--pen) 55%, var(--paper));
+  background: transparent;
+  padding: 0 0.15rem;
+  font-family: var(--font-mono);
+}
+.sheet .input:focus {
+  border-color: var(--pen);
+  box-shadow: 0 2px 0 0 var(--pen);
+}

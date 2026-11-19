@@ -30,7 +30,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
 
   return (
     <div className="card mx-auto w-full max-w-md p-7 sm:p-9">
-      <h1 className="font-display text-2xl font-semibold tracking-tight">{signup ? "Create your account" : "Welcome back"}</h1>
+      <p className="eyebrow">{signup ? "New log" : "Your log"}</p>
+      <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-pen">{signup ? "Start your practice log" : "Welcome back"}</h1>
       <p className="mt-1.5 text-muted">{signup ? "Save every interview and track your progress." : "Sign in to continue practising."}</p>
       <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
         {signup && (

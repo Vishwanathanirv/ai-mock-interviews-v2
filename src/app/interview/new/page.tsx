@@ -5,7 +5,7 @@ export const metadata = { title: "New interview" };
 
 export default function NewInterview() {
   return (
-    <>
+    <div className="sheet graph-paper min-h-dvh">
       <AppHeader />
       <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
         <p className="eyebrow">New interview</p>
@@ -13,6 +13,6 @@ export default function NewInterview() {
         <p className="mt-2 text-muted">Choose what you are preparing for. You can practise again with different settings any time.</p>
         <SetupForm />
       </main>
-    </>
+    </div>
   );
 }

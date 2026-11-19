@@ -3,7 +3,7 @@ import { Logo } from "@/components/Logo";
 
 export default function NotFound() {
   return (
-    <main className="grid min-h-dvh place-items-center px-4 text-center">
+    <main className="sheet graph-paper grid min-h-dvh place-items-center px-4 text-center">
       <div>
         <Logo />
         <h1 className="mt-10 font-display text-4xl font-semibold tracking-tight">Nothing to rehearse here</h1>
