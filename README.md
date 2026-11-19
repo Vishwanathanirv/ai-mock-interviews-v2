@@ -2,6 +2,28 @@
 
 > Built by [Vishwanathan R](https://vishwanathan.dev) · [Portfolio](https://vishwanathan.dev) · [Resume](https://vishwanathan.dev/resume.pdf)
 
+**[Live demo →](https://ai-mock-interviews-v2-gules.vercel.app)** · no sign-up, click *Try it now*
+
+**The problem.** Most people prepare for interviews by reading answers, then freeze when they have to say them out loud to someone who is judging them. Friends go easy on you; question banks never talk back.
+
+**Who it's for.** Students and engineers preparing for technical and behavioural interviews (13 roles, intern to senior) who want honest practice on demand.
+
+**Why it's different.**
+- **It's a conversation, not a quiz.** Arjun, the interviewer, speaks, waits until you have finished (no buttons), digs into what you actually said, and ends with "Do you have any questions for me?"
+- **It measures how you sound, not just what you said.** Pitch variety, pauses and pace come from the raw microphone signal (YIN pitch tracker, validated against Praat to within 1 Hz on synthesised speech), and eye contact from on-device face tracking. No audio or video leaves your browser.
+- **It gives you the panel's call.** The report says Strong hire to No hire against the bar for your level, and your practice log plots every interview against that bar.
+- **It works with zero setup.** No API key or database needed: an embedded Postgres and a rules grader run out of the box; Gemini is optional and falls back to the rules on any failure.
+
+**Measured numbers** (production build on a 4-core sandbox, Chromium, median of 5 loads; API over 50 answers, rules grader):
+
+| | |
+| --- | --- |
+| Home page | FCP 140 ms, 140.8 KB of JavaScript transferred (compressed) |
+| Practice log | FCP 104 ms, 111.3 KB of JavaScript |
+| Answer endpoint | p50 9 ms, p95 15 ms (AI grading runs after the reply) |
+| Tests | 91 unit (Vitest), 9 end-to-end (Playwright) |
+| `npm audit --omit=dev` | 0 vulnerabilities |
+
 Practise job interviews **out loud**. Rehearse reads each question, listens to your spoken answer, asks follow-ups when you miss something important, and gives you a detailed report with scores for **content, depth, structure and delivery**.
 
 This is version 2, a complete rebuild of my [original AI mock interview platform](https://github.com/Vishwanathanirv/ai_mock_interviews), which was published in the ICRCET-2026 proceedings ([DOI 10.5281/zenodo.24214718](https://doi.org/10.5281/zenodo.24214718)).
@@ -37,11 +59,12 @@ This is version 2, a complete rebuild of my [original AI mock interview platform
   - *Rules*: transparent, deterministic scoring that works with zero configuration.
   - *AI (Gemini)*: grades content, depth and structure with a JSON schema and validates the response with Zod. Delivery stays measured. If the AI call fails or times out, it falls back to the rules engine, so a session never breaks.
 - **13 roles × 4 levels × 3 interview types**: frontend, backend, full-stack, Java, mobile, QA/test automation, DevOps/Linux, cloud/SRE, network, security, data/ML, data analyst and product manager. 78 technical and 11 behavioural questions, each with key concepts, synonyms and a follow-up.
-- **Progress tracking.** A dashboard with the skill map, history, average and best scores, and a trend chart. Every answer can be revisited in its report, and reports can be saved as PDF.
+- **A practice log, not a dashboard.** The same graph paper as the home page: every interview plotted in ink against its hiring bar in red pencil, the skill map drawn as measurements with error whiskers, and each session a ruled entry. Every answer can be revisited in its report, and reports can be saved as PDF.
 - **Secure by default.**
   - scrypt password hashing and signed http-only session cookies (HS256 JWT)
   - per-IP and per-account rate limits, and timing-safe login (no user enumeration)
-  - ownership checks on every query, strict security headers, and Zod validation on every input
+  - ownership checks on every query and Zod validation on every input
+  - a Content Security Policy (everything served by this site), cross-site request blocking on every state-changing API route (Origin check plus JSON-only bodies), and no query parameters in error logs
 
 | Interview room | Instant feedback |
 | --- | --- |
@@ -125,15 +148,15 @@ Optional settings (copy `.env.example` to `.env.local`):
 | `DATABASE_URL` | Postgres connection string. Without it, PGlite is used. |
 | `GEMINI_API_KEY` | Turns on AI grading, tailored follow-ups and the written debrief. |
 
-Voice answers work in Chrome and Edge. Other browsers use the typing mode automatically.
+Voice answers work in Chrome and Edge on a computer. Other browsers are told to switch; there is no typing mode, as in a real interview.
 
 ## Tests
 
 ```bash
 npm run lint && npm run typecheck
-npm test            # 85 unit tests (Vitest), including the DSP, turn-taking and the mastery model
+npm test            # 91 unit tests (Vitest), including the DSP, turn-taking and the mastery model
 npm run build
-npm run test:e2e    # 6 end-to-end tests (Playwright): a full hands-free interview, and generated speech through a fake microphone
+npm run test:e2e    # 9 end-to-end tests (Playwright): a full hands-free interview, generated speech through a fake microphone, access control, CSRF and CSP
 ```
 
 GitHub Actions runs all of these on every push.
