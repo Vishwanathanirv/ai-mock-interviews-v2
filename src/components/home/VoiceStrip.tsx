@@ -195,12 +195,7 @@ export function VoiceStrip() {
     repaint();
     const onResize = () => repaint();
     window.addEventListener("resize", onResize);
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    mq.addEventListener("change", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      mq.removeEventListener("change", onResize);
-    };
+    return () => window.removeEventListener("resize", onResize);
   }, [repaint]);
 
   useEffect(() => () => live.current?.stop(), []);

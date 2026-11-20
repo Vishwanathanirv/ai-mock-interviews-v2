@@ -1,7 +1,5 @@
 # Rehearse · AI mock interviews
 
-> Built by [Vishwanathan R](https://vishwanathan.dev) · [Portfolio](https://vishwanathan.dev) · [Resume](https://vishwanathan.dev/resume.pdf)
-
 **[Live demo →](https://ai-mock-interviews-v2-gules.vercel.app)** · no sign-up, click *Try it now*
 
 **The problem.** Most people prepare for interviews by reading answers, then freeze when they have to say them out loud to someone who is judging them. Friends go easy on you; question banks never talk back.
@@ -26,7 +24,7 @@
 
 Practise job interviews **out loud**. Rehearse reads each question, listens to your spoken answer, asks follow-ups when you miss something important, and gives you a detailed report with scores for **content, depth, structure and delivery**.
 
-This is version 2, a complete rebuild of my [original AI mock interview platform](https://github.com/Vishwanathanirv/ai_mock_interviews), which was published in the ICRCET-2026 proceedings ([DOI 10.5281/zenodo.24214718](https://doi.org/10.5281/zenodo.24214718)).
+This is version 2, a complete rebuild of an earlier AI mock interview platform.
 
 ![Landing page](docs/screenshots/landing.png)
 
@@ -134,7 +132,7 @@ Technical answers weight content most heavily, and behavioural answers weight st
 You need Node 20+.
 
 ```bash
-git clone https://github.com/Vishwanathanirv/ai-mock-interviews-v2.git
+git clone <this repository> ai-mock-interviews-v2
 cd ai-mock-interviews-v2
 npm install
 npm run dev
@@ -177,4 +175,4 @@ Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Drizzle O
 
 ## License
 
-MIT © Vishwanathan R
+MIT

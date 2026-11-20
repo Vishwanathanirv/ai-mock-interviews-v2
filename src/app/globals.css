@@ -1,60 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f7f5f0;
-  --surface: #ffffff;
-  --surface-2: #efece4;
-  --ink: #17191c;
-  --muted: #5d636b;
-  --faint: #8b9098;
-  --line: #e2ded4;
-  --accent: #2f5d50;
-  --accent-ink: #ffffff;
-  --accent-soft: #dde9e3;
-  --warn: #9a5b13;
-  --warn-soft: #f6e8d3;
-  --bad: #a23b2c;
-  --bad-soft: #f5dfda;
-  --good: #2f6b45;
-  --good-soft: #dcecdf;
-  --ring: rgba(47, 93, 80, 0.35);
-  /* Home page: graph paper by day, blueprint by night. */
-  --paper: #f2f5f7;
-  --grid: #dde6ee;
-  --grid-major: #c3d3e1;
-  --pen: #1f3f8c;
-  --pen-soft: #dfe6f5;
-  --pencil: #c2412b;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #111315;
-    --surface: #181b1e;
-    --surface-2: #20242a;
-    --ink: #eceae4;
-    --muted: #a3a8ae;
-    --faint: #757b83;
-    --line: #2a2f35;
-    --accent: #7fbfa8;
-    --accent-ink: #0f1a16;
-    --accent-soft: #1d2e28;
-    --warn: #e2ad6a;
-    --warn-soft: #2e2417;
-    --bad: #ec8c7c;
-    --bad-soft: #2f1c19;
-    --good: #8fd0a3;
-    --good-soft: #182a1f;
-    --ring: rgba(127, 191, 168, 0.4);
-    --paper: #0f2337;
-    --grid: #17304a;
-    --grid-major: #224365;
-    --pen: #e4eefa;
-    --pen-soft: #1b3958;
-    --pencil: #ff8f73;
-    color-scheme: dark;
-  }
+  --bg: #111315;
+  --surface: #181b1e;
+  --surface-2: #20242a;
+  --ink: #eceae4;
+  --muted: #a3a8ae;
+  --faint: #757b83;
+  --line: #2a2f35;
+  --accent: #7fbfa8;
+  --accent-ink: #0f1a16;
+  --accent-soft: #1d2e28;
+  --warn: #e2ad6a;
+  --warn-soft: #2e2417;
+  --bad: #ec8c7c;
+  --bad-soft: #2f1c19;
+  --good: #8fd0a3;
+  --good-soft: #182a1f;
+  --ring: rgba(127, 191, 168, 0.4);
+  --paper: #0f2337;
+  --grid: #17304a;
+  --grid-major: #224365;
+  --pen: #e4eefa;
+  --pen-soft: #1b3958;
+  --pencil: #ff8f73;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -216,22 +186,17 @@ body {
 }
 
 /*
- * The whole product is one lab notebook: graph paper by day, blueprint by night, ink for what was
- * measured and red pencil for what needs attention. `.sheet` turns any page into that paper and
- * re-points the accent at the pen, so buttons and focus rings are drawn in the same ink.
+ * The whole product is one lab notebook drawn as a blueprint: ink for what was measured and red
+ * pencil for what needs attention. `.sheet` turns any page into that paper and re-points the
+ * accent at the pen, so buttons and focus rings are drawn in the same ink.
  */
 .sheet {
   --bg: var(--paper);
   --accent: var(--pen);
   --accent-ink: var(--paper);
-  --surface: color-mix(in oklab, var(--paper) 82%, white);
+  --surface: color-mix(in oklab, var(--paper) 88%, black);
   --line: color-mix(in oklab, var(--pen) 22%, var(--paper));
   --ring: color-mix(in oklab, var(--pen) 40%, transparent);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .sheet {
-    --surface: color-mix(in oklab, var(--paper) 88%, black);
-  }
 }
 .sheet .card {
   border-radius: 0.35rem;

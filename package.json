@@ -44,7 +44,6 @@
     "vitest": "^5.1.1"
   },
   "description": "Voice-first AI mock interviews with adaptive follow-ups and detailed, measurable feedback.",
-  "author": "Vishwanathan R <mail@vishwanathan.dev> (https://vishwanathan.dev)",
   "license": "MIT",
   "engines": {
     "node": ">=20"
