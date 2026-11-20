@@ -130,7 +130,8 @@ function rankByDifficulty(cfg: InterviewConfig, history: HistoryItem[], pool: Ba
   return pool.map((b) => ({ b, d: Math.abs(b.difficulty - target) + rand() * 0.6 })).sort((a, b) => a.d - b.d)[0].b;
 }
 
-function shouldProbe(e: AnswerEvaluation): boolean {
+/** Whether the interviewer digs into a missing concept after this answer. */
+export function shouldProbe(e: AnswerEvaluation): boolean {
   return e.missing.length > 0 && e.score < 65 && e.metrics.words >= 8;
 }
 
